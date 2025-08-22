@@ -19,7 +19,7 @@ title = extension-iap
 dependencies#0 = https://github.com/andsve/dirtylarry/archive/master.zip
 
 [library]
-include_dirs = extension-iap
+include_dirs = extension-iap,extension-rustore-pay-core
 
 [ios]
 bundle_identifier = com.defold.extension.iap

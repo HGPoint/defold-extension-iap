@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include "iap.h"
 #include "iap_private.h"
+#include "rustorepay.h"
+#include "../../extension-rustore-pay-core/src/rustorecore.h"
 
 #define LIB_NAME "iap"
 
@@ -16,9 +18,11 @@ struct IAP
     {
         memset(this, 0, sizeof(*this));
         m_autoFinishTransactions = true;
+        m_isRuStoreInstalled = false;
         m_ProviderId = PROVIDER_ID_GOOGLE;
     }
     bool            m_autoFinishTransactions;
+    bool            m_isRuStoreInstalled;
     int             m_ProviderId;
 
     dmScript::LuaCallbackInfo* m_Listener;
@@ -51,7 +55,18 @@ static int IAP_ProcessPendingTransactions(lua_State* L)
 
 static int IAP_List(lua_State* L)
 {
+    dmLogInfo("IAP_List");
+
     DM_LUA_STACK_CHECK(L, 0);
+
+    if(g_IAP.m_isRuStoreInstalled){
+        bool auth = GetCoreAuthorizationStatus();
+        dmScript::LuaCallbackInfo* callback = dmScript::CreateCallback(L, 2);
+
+        ConnectCallback("rustore_pay_on_get_products_success", callback);
+        GetRuStoreProducts(L);
+        return 0;
+    }
 
     char* buf = IAP_List_CreateBuffer(L);
     if( buf == 0 )
@@ -76,6 +91,19 @@ static int IAP_List(lua_State* L)
 static int IAP_Buy(lua_State* L)
 {
     DM_LUA_STACK_CHECK(L, 0);
+
+    if(g_IAP.m_isRuStoreInstalled){
+        // bool auth = GetCoreAuthorizationStatus();
+        // if(!auth){
+        //     GetRuStorePurchases();
+        //     CallBackCancelPurchase();
+        //     return 0;
+        // }
+        const char* productId = (char*)luaL_checkstring(L, 1);
+        //RuStorePurchase(productId);
+        RuStorePurchaseTwoStep(productId);
+        return 0;
+    }
 
     int top = lua_gettop(L);
     const char* id = luaL_checkstring(L, 1);
@@ -102,9 +130,14 @@ static int IAP_Buy(lua_State* L)
 
 static int IAP_Finish(lua_State* L)
 {
+    dmLogInfo("IAP_Finish");
+
     DM_LUA_STACK_CHECK(L, 0);
 
-    if(g_IAP.m_autoFinishTransactions)
+    if(g_IAP.m_isRuStoreInstalled)
+    {
+
+    } else if(g_IAP.m_autoFinishTransactions)
     {
         dmLogWarning("Calling iap.finish when autofinish transactions is enabled. Ignored.");
         return 0;
@@ -134,11 +167,19 @@ static int IAP_Finish(lua_State* L)
         const char * receipt = lua_tostring(L, -1);
         lua_pop(L, 1);
 
-        dmAndroid::ThreadAttacher threadAttacher;
-        JNIEnv* env = threadAttacher.GetEnv();
-        jstring receiptUTF = env->NewStringUTF(receipt);
-        env->CallVoidMethod(g_IAP.m_IAP, g_IAP.m_FinishTransaction, receiptUTF, g_IAP.m_IAPJNI);
-        env->DeleteLocalRef(receiptUTF);
+        dmAndroid::ThreadAttacher thread;
+        JNIEnv* env = thread.GetEnv();
+
+        if(g_IAP.m_isRuStoreInstalled){
+            //bool auth = GetCoreAuthorizationStatus();
+            RuStoreConfirmTwoStepPurchase(receipt);
+        } else {
+            
+            jstring receiptUTF = env->NewStringUTF(receipt);
+            env->CallVoidMethod(g_IAP.m_IAP, g_IAP.m_FinishTransaction, receiptUTF, g_IAP.m_IAPJNI);
+            env->DeleteLocalRef(receiptUTF);
+        }
+
     }
 
     return 0;
@@ -172,11 +213,16 @@ static int IAP_Acknowledge(lua_State* L)
         const char * receipt = lua_tostring(L, -1);
         lua_pop(L, 1);
 
-        dmAndroid::ThreadAttacher threadAttacher;
-        JNIEnv* env = threadAttacher.GetEnv();
-        jstring receiptUTF = env->NewStringUTF(receipt);
-        env->CallVoidMethod(g_IAP.m_IAP, g_IAP.m_AcknowledgeTransaction, receiptUTF, g_IAP.m_IAPJNI);
-        env->DeleteLocalRef(receiptUTF);
+        if(g_IAP.m_isRuStoreInstalled){
+            //TODO
+            GetRuStorePurchase(receipt);
+        } else {
+            dmAndroid::ThreadAttacher threadAttacher;
+            JNIEnv* env = threadAttacher.GetEnv();
+            jstring receiptUTF = env->NewStringUTF(receipt);
+            env->CallVoidMethod(g_IAP.m_IAP, g_IAP.m_AcknowledgeTransaction, receiptUTF, g_IAP.m_IAPJNI);
+            env->DeleteLocalRef(receiptUTF);
+        }
     }
 
     return 0;
@@ -187,6 +233,12 @@ static int IAP_Restore(lua_State* L)
     // TODO: Missing callback here for completion/error
     // See iap_ios.mm
     DM_LUA_STACK_CHECK(L, 1);
+
+    if(g_IAP.m_isRuStoreInstalled){
+        //TODO
+        lua_pushboolean(L, 1);
+        return 1;
+    }
 
     dmAndroid::ThreadAttacher threadAttacher;
     JNIEnv* env = threadAttacher.GetEnv();
@@ -199,6 +251,25 @@ static int IAP_Restore(lua_State* L)
 static int IAP_SetListener(lua_State* L)
 {
     DM_LUA_STACK_CHECK(L, 0);
+
+    if(g_IAP.m_isRuStoreInstalled){
+        //bool auth = GetCoreAuthorizationStatus();
+        
+        dmAndroid::ThreadAttacher thread;
+        JNIEnv* env = thread.GetEnv();
+
+        dmScript::LuaCallbackInfo* callback = dmScript::CreateCallback(L, 1);
+
+        ConnectCallback("rustore_pay_on_purchase_success", callback);
+        ConnectCallback("rustore_pay_on_purchase_failure", callback);
+        ConnectCallback("rustore_pay_on_purchase_two_step_success", callback);
+        ConnectCallback("rustore_pay_on_purchase_two_step_failure", callback);
+        ConnectCallback("rustore_pay_on_get_purchases_success", callback);
+        ConnectCallback("rustore_pay_on_get_purchases_failure", callback);
+
+        GetRuStorePurchases();
+        return 0;
+    }
 
     IAP* iap = &g_IAP;
 
@@ -221,6 +292,11 @@ static int IAP_SetListener(lua_State* L)
 static int IAP_GetProviderId(lua_State* L)
 {
     DM_LUA_STACK_CHECK(L, 1);
+
+    if(g_IAP.m_isRuStoreInstalled){
+        lua_pushinteger(L, PROVIDER_ID_RUSTORE);
+        return 1;
+    }
 
     lua_pushinteger(L, g_IAP.m_ProviderId);
     return 1;
@@ -370,6 +446,15 @@ static dmExtension::Result InitializeIAP(dmExtension::Params* params)
 {
     IAP_Queue_Create(&g_IAP.m_CommandQueue);
 
+    bool isRuStoreInstalled = IsRuStoreInstalled();
+    if(isRuStoreInstalled){
+        g_IAP.m_isRuStoreInstalled = true;
+        dmLogInfo("IsRuStoreInstalled() == true");
+        GetRuStoreUserAuthorizationStatus();
+    } else {
+        dmLogInfo("IsRuStoreInstalled() == false");
+    }
+
     g_IAP.m_autoFinishTransactions = dmConfigFile::GetInt(params->m_ConfigFile, "iap.auto_finish_transactions", 1) == 1;
 
     dmAndroid::ThreadAttacher threadAttacher;
@@ -382,8 +467,9 @@ static dmExtension::Result InitializeIAP(dmExtension::Params* params)
     if (!strcmp(provider, "Amazon")) {
         g_IAP.m_ProviderId = PROVIDER_ID_AMAZON;
         class_name = "com.defold.iap.IapAmazon";
-    }
-    else if (strcmp(provider, "GooglePlay")) {
+    } else if (!strcmp(provider, "Rustore")) {
+        dmLogInfo("Provider name [%s]", provider);
+    } else if (strcmp(provider, "GooglePlay")) {
         dmLogWarning("Unknown IAP provider name [%s], defaulting to GooglePlay", provider);
     }
 
