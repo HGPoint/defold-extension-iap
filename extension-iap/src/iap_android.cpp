@@ -79,6 +79,7 @@ static int IAP_List(lua_State* L)
         dmScript::LuaCallbackInfo* callback = dmScript::CreateCallback(L, 2);
 
         ConnectCallback("rustore_pay_on_get_products_success", callback);
+        ConnectCallback("rustore_pay_on_get_products_failure", callback);
         GetRuStoreProducts(L);
         return 0;
     }

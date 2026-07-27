@@ -77,6 +77,25 @@ static void PushDecodedJson(lua_State* L, const char* value)
     lua_call(L, 1, 1);                  // stack: table
 }
 
+static void PushIAPError(lua_State* L, const char* error, int reason)
+{
+    lua_newtable(L);
+    lua_pushstring(L, "error");
+    lua_pushstring(L, error);
+    lua_rawset(L, -3);
+    lua_pushstring(L, "reason");
+    lua_pushnumber(L, reason);
+    lua_rawset(L, -3);
+}
+
+static void PushRuStoreProductListError(lua_State* L, const char* value)
+{
+    PushIAPError(L, "failed to fetch product", 0);
+    lua_pushstring(L, "rustore_error");
+    lua_pushstring(L, value);
+    lua_rawset(L, -3);
+}
+
 static void CallCallbackWithDecodedJsonItems(dmScript::LuaCallbackInfo* callback, const char* value)
 {
     lua_State* L = dmScript::GetCallbackLuaContext(callback);
@@ -807,8 +826,19 @@ static void ProcessOneParam(QueueCallbackItem* item)
                 lua_insert(L, -3);                  // stack: json.decode, json, json_str
                 lua_pop(L, 1);                      // stack: json.decode, json_str
                 lua_call(L, 1, 1);                  // stack: table
+                lua_pushnil(L);
 
-                dmScript::PCall(L, 2, 0); // self + # user arguments
+                dmScript::PCall(L, 3, 0); // self + # user arguments
+
+                dmScript::TeardownCallback(callback);
+            } else if (strcmp(channel, "rustore_pay_on_get_products_failure") == 0) {
+
+                dmLogInfo("rustore_pay_on_get_products_failure callback value send = %s", value);
+
+                lua_pushnil(L);
+                PushRuStoreProductListError(L, value);
+
+                dmScript::PCall(L, 3, 0); // self + # user arguments
 
                 dmScript::TeardownCallback(callback);
             } else {
