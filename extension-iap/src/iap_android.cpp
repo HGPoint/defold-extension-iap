@@ -237,8 +237,7 @@ static int IAP_Acknowledge(lua_State* L)
         lua_pop(L, 1);
 
         if(g_IAP.m_isRuStoreInstalled){
-            //TODO
-            GetRuStorePurchase(receipt);
+            dmLogInfo("RuStore iap.acknowledge ignored: RuStore has no Google Play acknowledge equivalent.");
         } else {
             dmAndroid::ThreadAttacher threadAttacher;
             JNIEnv* env = threadAttacher.GetEnv();
