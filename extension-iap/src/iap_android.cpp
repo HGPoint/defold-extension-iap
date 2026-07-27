@@ -19,10 +19,12 @@ struct IAP
         memset(this, 0, sizeof(*this));
         m_autoFinishTransactions = true;
         m_isRuStoreInstalled = false;
+        m_useRuStoreTwoStepPurchase = false;
         m_ProviderId = PROVIDER_ID_GOOGLE;
     }
     bool            m_autoFinishTransactions;
     bool            m_isRuStoreInstalled;
+    bool            m_useRuStoreTwoStepPurchase;
     int             m_ProviderId;
 
     dmScript::LuaCallbackInfo* m_Listener;
@@ -100,8 +102,11 @@ static int IAP_Buy(lua_State* L)
         //     return 0;
         // }
         const char* productId = (char*)luaL_checkstring(L, 1);
-        //RuStorePurchase(productId); //TODO
-        RuStorePurchaseTwoStep(productId);
+        if(g_IAP.m_useRuStoreTwoStepPurchase){
+            RuStorePurchaseTwoStep(productId);
+        } else {
+            RuStorePurchase(productId);
+        }
         return 0;
     }
 
@@ -456,6 +461,8 @@ static dmExtension::Result InitializeIAP(dmExtension::Params* params)
     }
 
     g_IAP.m_autoFinishTransactions = dmConfigFile::GetInt(params->m_ConfigFile, "iap.auto_finish_transactions", 1) == 1;
+    g_IAP.m_useRuStoreTwoStepPurchase = dmConfigFile::GetInt(params->m_ConfigFile, "iap.rustore_use_two_step_purchase", 0) == 1;
+    dmLogInfo("RuStore two-step purchase mode: %s", g_IAP.m_useRuStoreTwoStepPurchase ? "enabled" : "disabled");
 
     dmAndroid::ThreadAttacher threadAttacher;
     JNIEnv* env = threadAttacher.GetEnv();

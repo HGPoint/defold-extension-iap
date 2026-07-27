@@ -168,7 +168,7 @@ int RuStorePurchase(const char* productId)
     jstring juuid = (jstring) env->CallStaticObjectMethod(cls2, getUUIDMethod);
     const char *uuid = env->GetStringUTFChars(juuid, nullptr);
 
-    std::string jsonString = "{ \"productId\":\"" + std::string(productId) + "\", \"appUserId\":\"" + std::string(uuid) + "\", \"orderId\":\"" + std::string(uuid) + "\", \"quantity\":1, \"payload\":\"\" }";
+    std::string jsonString = "{ \"productId\":\"" + std::string(productId) + "\", \"appUserId\":\"" + std::string(uuid) + "\", \"orderId\":\"" + std::string(uuid) + "\", \"quantity\":1, \"developerPayload\":\"\" }";
     jstring jparams = env->NewStringUTF(jsonString.c_str());
 
     const char* preferredPurchaseType = "ONE_STEP";
@@ -207,7 +207,7 @@ int RuStorePurchaseTwoStep(const char* productId)
     jstring juuid = (jstring) env->CallStaticObjectMethod(cls2, getUUIDMethod);
     const char *uuid = env->GetStringUTFChars(juuid, nullptr);
 
-    std::string jsonString = "{ \"productId\":\"" + std::string(productId) + "\", \"orderId\":\"" + std::string(uuid) + "\", \"quantity\":1, \"payload\":\"\" }";
+    std::string jsonString = "{ \"productId\":\"" + std::string(productId) + "\", \"orderId\":\"" + std::string(uuid) + "\", \"quantity\":1, \"developerPayload\":\"\" }";
     jstring jparams = env->NewStringUTF(jsonString.c_str());
 
     dmLogInfo("IAP_Buy RuStorePurchaseTwoStep = %s", jsonString.c_str());
