@@ -19,11 +19,13 @@ struct IAP
         memset(this, 0, sizeof(*this));
         m_autoFinishTransactions = true;
         m_isRuStoreInstalled = false;
+        m_useOnlyRuStore = false;
         m_useRuStoreTwoStepPurchase = false;
         m_ProviderId = PROVIDER_ID_GOOGLE;
     }
     bool            m_autoFinishTransactions;
     bool            m_isRuStoreInstalled;
+    bool            m_useOnlyRuStore;
     bool            m_useRuStoreTwoStepPurchase;
     int             m_ProviderId;
 
@@ -44,6 +46,8 @@ struct IAP
 
 static IAP g_IAP;
 
+static void IAP_RegisterLua(lua_State* L);
+
 static bool IAP_IsRuStoreTwoStepTransaction(lua_State* L, int transactionIndex)
 {
     bool isTwoStep = false;
@@ -60,6 +64,11 @@ static bool IAP_IsRuStoreTwoStepTransaction(lua_State* L, int transactionIndex)
 static int IAP_ProcessPendingTransactions(lua_State* L)
 {
     DM_LUA_STACK_CHECK(L, 0);
+
+    if(g_IAP.m_isRuStoreInstalled){
+        GetRuStorePurchases();
+        return 0;
+    }
 
     dmAndroid::ThreadAttacher threadAttacher;
     JNIEnv* env = threadAttacher.GetEnv();
@@ -340,6 +349,17 @@ static const luaL_reg IAP_methods[] =
     {0, 0}
 };
 
+static void IAP_RegisterLua(lua_State* L)
+{
+    int top = lua_gettop(L);
+    luaL_register(L, LIB_NAME, IAP_methods);
+
+    IAP_PushConstants(L);
+
+    lua_pop(L, 1);
+    assert(top == lua_gettop(L));
+}
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -471,18 +491,26 @@ static dmExtension::Result InitializeIAP(dmExtension::Params* params)
 {
     IAP_Queue_Create(&g_IAP.m_CommandQueue);
 
+    g_IAP.m_autoFinishTransactions = dmConfigFile::GetInt(params->m_ConfigFile, "iap.auto_finish_transactions", 1) == 1;
+    g_IAP.m_useOnlyRuStore = dmConfigFile::GetInt(params->m_ConfigFile, "iap.use_only_rustore", 0) == 1;
+    g_IAP.m_useRuStoreTwoStepPurchase = dmConfigFile::GetInt(params->m_ConfigFile, "iap.rustore_use_two_step_purchase", 0) == 1;
+    dmLogInfo("RuStore-only IAP mode: %s", g_IAP.m_useOnlyRuStore ? "enabled" : "disabled");
+    dmLogInfo("RuStore two-step purchase mode: %s", g_IAP.m_useRuStoreTwoStepPurchase ? "enabled" : "disabled");
+
     bool isRuStoreInstalled = IsRuStoreInstalled();
-    if(isRuStoreInstalled){
+    if(g_IAP.m_useOnlyRuStore || isRuStoreInstalled){
         g_IAP.m_isRuStoreInstalled = true;
-        dmLogInfo("IsRuStoreInstalled() == true");
+        dmLogInfo("RuStore IAP pipeline enabled. IsRuStoreInstalled() == %s", isRuStoreInstalled ? "true" : "false");
         GetRuStoreUserAuthorizationStatus();
     } else {
         dmLogInfo("IsRuStoreInstalled() == false");
     }
 
-    g_IAP.m_autoFinishTransactions = dmConfigFile::GetInt(params->m_ConfigFile, "iap.auto_finish_transactions", 1) == 1;
-    g_IAP.m_useRuStoreTwoStepPurchase = dmConfigFile::GetInt(params->m_ConfigFile, "iap.rustore_use_two_step_purchase", 0) == 1;
-    dmLogInfo("RuStore two-step purchase mode: %s", g_IAP.m_useRuStoreTwoStepPurchase ? "enabled" : "disabled");
+    if(g_IAP.m_useOnlyRuStore){
+        dmLogInfo("Skipping Defold Android IAP provider initialization because iap.use_only_rustore is enabled.");
+        IAP_RegisterLua(params->m_L);
+        return dmExtension::RESULT_OK;
+    }
 
     dmAndroid::ThreadAttacher threadAttacher;
     JNIEnv* env = threadAttacher.GetEnv();
@@ -517,14 +545,7 @@ static dmExtension::Result InitializeIAP(dmExtension::Params* params)
     jni_constructor = env->GetMethodID(iap_jni_class, "<init>", "()V");
     g_IAP.m_IAPJNI = env->NewGlobalRef(env->NewObject(iap_jni_class, jni_constructor));
 
-    lua_State*L = params->m_L;
-    int top = lua_gettop(L);
-    luaL_register(L, LIB_NAME, IAP_methods);
-
-    IAP_PushConstants(L);
-
-    lua_pop(L, 1);
-    assert(top == lua_gettop(L));
+    IAP_RegisterLua(params->m_L);
 
     return dmExtension::RESULT_OK;
 }
@@ -559,17 +580,22 @@ static dmExtension::Result FinalizeIAP(dmExtension::Params* params)
 {
     IAP_Queue_Destroy(&g_IAP.m_CommandQueue);
 
-    if (params->m_L == dmScript::GetCallbackLuaContext(g_IAP.m_Listener)) {
+    if (g_IAP.m_Listener && params->m_L == dmScript::GetCallbackLuaContext(g_IAP.m_Listener)) {
         dmScript::DestroyCallback(g_IAP.m_Listener);
         g_IAP.m_Listener = 0;
     }
 
     dmAndroid::ThreadAttacher threadAttacher;
     JNIEnv* env = threadAttacher.GetEnv();
-    env->CallVoidMethod(g_IAP.m_IAP, g_IAP.m_Stop);
-    env->DeleteGlobalRef(g_IAP.m_IAP);
-    env->DeleteGlobalRef(g_IAP.m_IAPJNI);
-    g_IAP.m_IAP = NULL;
+    if(g_IAP.m_IAP){
+        env->CallVoidMethod(g_IAP.m_IAP, g_IAP.m_Stop);
+        env->DeleteGlobalRef(g_IAP.m_IAP);
+        g_IAP.m_IAP = NULL;
+    }
+    if(g_IAP.m_IAPJNI){
+        env->DeleteGlobalRef(g_IAP.m_IAPJNI);
+        g_IAP.m_IAPJNI = NULL;
+    }
     return dmExtension::RESULT_OK;
 }
 

@@ -75,8 +75,9 @@ Out of scope for the current implementation:
 During Android IAP initialization, `InitializeIAP()` calls `IsRuStoreInstalled()`:
 
 ```cpp
+g_IAP.m_useOnlyRuStore = dmConfigFile::GetInt(params->m_ConfigFile, "iap.use_only_rustore", 0) == 1;
 bool isRuStoreInstalled = IsRuStoreInstalled();
-if(isRuStoreInstalled){
+if(g_IAP.m_useOnlyRuStore || isRuStoreInstalled){
     g_IAP.m_isRuStoreInstalled = true;
     GetRuStoreUserAuthorizationStatus();
 }
@@ -86,10 +87,37 @@ If `g_IAP.m_isRuStoreInstalled` is true, the Android implementation redirects se
 
 Important behavior:
 
-- Selection is based on RuStore installation, not on `android.iap_provider` alone.
+- Selection is based on RuStore installation or explicit `iap.use_only_rustore = 1`, not on `android.iap_provider` alone.
 - `android.iap_provider = Rustore` is logged but does not instantiate a separate Defold Java IAP provider class.
 - If RuStore is installed, `iap.get_provider_id()` returns `PROVIDER_ID_RUSTORE`.
 - If RuStore is not installed, the extension uses the existing Google Play or Amazon path.
+
+### RuStore-only mode
+
+The Android pipeline can be forced to RuStore through `game.project`:
+
+```ini
+[iap]
+use_only_rustore = 1
+```
+
+When `iap.use_only_rustore = 1`:
+
+- The public Lua API remains `iap.*`.
+- `iap.get_provider_id()` returns `PROVIDER_ID_RUSTORE`.
+- Google Play and Amazon Java IAP provider classes are not loaded or instantiated by this extension.
+- Defold Android IAP JNI callback object is not created for the fallback provider path.
+- `android.iap_provider` is ignored for runtime payment routing.
+- No Google Play or Amazon fallback is attempted if RuStore is unavailable, missing, unauthorized, outdated, or misconfigured.
+
+`iap.process_pending_transactions()` also uses `GetRuStorePurchases()` in this mode instead of calling the Defold Android IAP provider.
+
+Default behavior remains auto mode:
+
+```ini
+[iap]
+use_only_rustore = 0
+```
 
 ## API Mapping
 
@@ -438,6 +466,7 @@ This reduces the risk of a direct JNI signature mismatch after migration from Ru
 |---|---|---|
 | `PAID` maps to `TRANS_STATE_PURCHASED`. | For two-step purchases, game code may grant a product before `confirmTwoStepPurchase()` succeeds. | `RuStoreJsonConverter.java` |
 | `CONFIRMED` purchases are not restored by default. | This matches Defold Google Play non-finished purchase behavior, but non-consumable restore through RuStore may need game-side/server-side handling. | `rustorepay.cpp` |
+| `iap.use_only_rustore = 1` disables Google Play and Amazon fallback. | Devices without a working RuStore payment environment cannot recover through the original Defold Android IAP provider. | `iap_android.cpp` |
 
 ### Important
 
@@ -483,6 +512,8 @@ Provider routing:
 
 - Device without RuStore uses Google Play/Amazon path.
 - Device with RuStore returns `iap.PROVIDER_ID_RUSTORE` from `iap.get_provider_id()`.
+- `iap.use_only_rustore = 1` returns `iap.PROVIDER_ID_RUSTORE` and does not initialize Google Play/Amazon provider classes.
+- `iap.use_only_rustore = 1` on a device without a working RuStore payment environment produces RuStore-path unavailable/authorization/purchase errors instead of falling back to Google Play/Amazon.
 - Device with RuStore installed but unauthorized produces the expected authorization or purchase failure behavior.
 
 Product listing:
