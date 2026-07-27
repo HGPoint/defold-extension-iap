@@ -794,7 +794,9 @@ static void ProcessTwoParam(QueueCallbackItemTwoParams* item)
         dmAndroid::ThreadAttacher thread;
         JNIEnv* env = thread.GetEnv();
 
-        if (strcmp(channel, "rustore_pay_on_purchase_failure") == 0) {
+        if(strcmp(channel, "rustore_pay_on_confirm_two_step_purchase_failure") == 0) {
+            //TODO
+        } else if (strcmp(channel, "rustore_pay_on_purchase_failure") == 0) {
 
             jclass cls = dmAndroid::LoadClass(env, "ru.rustore.defold.core.RuStoreJsonConverter");
             jmethodID convertMethod = env->GetStaticMethodID(cls, "convertPurchaseProductFailure", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");

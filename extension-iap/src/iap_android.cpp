@@ -100,7 +100,7 @@ static int IAP_Buy(lua_State* L)
         //     return 0;
         // }
         const char* productId = (char*)luaL_checkstring(L, 1);
-        //RuStorePurchase(productId);
+        //RuStorePurchase(productId); //TODO
         RuStorePurchaseTwoStep(productId);
         return 0;
     }
