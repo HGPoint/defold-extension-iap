@@ -793,9 +793,10 @@ static void ProcessOneParam(QueueCallbackItem* item)
             } else if (strcmp(channel, "rustore_pay_on_purchase_product_failure") == 0) {
 
                 jclass cls = dmAndroid::LoadClass(env, "ru.rustore.defold.core.RuStoreJsonConverter");
-                jmethodID convertMethod = env->GetStaticMethodID(cls, "convertPurchaseProductFailure", "(Ljava/lang/String;)Ljava/lang/String;");
+                jmethodID convertMethod = env->GetStaticMethodID(cls, "convertPurchaseProductFailure", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
                 jstring jvalue = env->NewStringUTF(value);
-                jstring result = (jstring) env->CallStaticObjectMethod(cls, convertMethod, jvalue);
+                jstring jproductId = env->NewStringUTF("");
+                jstring result = (jstring) env->CallStaticObjectMethod(cls, convertMethod, jvalue, jproductId);
                 const char *ctext = env->GetStringUTFChars(result, nullptr);
 
                 dmLogInfo("rustore_pay_on_purchase_product_failure callback new value send = %s", ctext);
