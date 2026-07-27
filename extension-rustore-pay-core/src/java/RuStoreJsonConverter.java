@@ -134,9 +134,9 @@ public class RuStoreJsonConverter {
 
 			}
 			
-			JSONObject original = null;
+			JSONArray transformedArray = new JSONArray();
 			for (int i = 0; i < jsonArray.length(); i++) {
-				original = jsonArray.getJSONObject(i);
+				JSONObject original = jsonArray.getJSONObject(i);
 
 				String status = original.getString("status");
 				if(status.equals("INVOICE_CREATED")){
@@ -175,19 +175,16 @@ public class RuStoreJsonConverter {
 				if (original.has("price")) {
 					original.put("amount", original.getDouble("price")*.01);
 				}
-				//return original.toString();
+
+				transformedArray.put(original);
 			}
 
-			if(original != null){
-				Log.d(TAG, "INFO:RUSTORECORE: convertPurchasesDetails() => " + original.toString());
-				return original.toString();
-			}
-
-			return "{ \"state\":2, \"date\":\"" + toISO8601(new Date()) + "\", \"ident\":\"\" }";
+			Log.d(TAG, "INFO:RUSTORECORE: convertPurchasesDetails() => " + transformedArray.toString());
+			return transformedArray.toString();
 
         } catch (Exception e) {
             e.printStackTrace();
-            return "{}";
+			return "[]";
         }
     }
 

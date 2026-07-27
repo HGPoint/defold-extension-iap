@@ -240,7 +240,7 @@ static int IAP_Restore(lua_State* L)
     DM_LUA_STACK_CHECK(L, 1);
 
     if(g_IAP.m_isRuStoreInstalled){
-        //TODO
+        GetRuStorePurchases();
         lua_pushboolean(L, 1);
         return 1;
     }
@@ -265,12 +265,15 @@ static int IAP_SetListener(lua_State* L)
 
         dmScript::LuaCallbackInfo* callback = dmScript::CreateCallback(L, 1);
 
-        ConnectCallback("rustore_pay_on_purchase_success", callback);
-        ConnectCallback("rustore_pay_on_purchase_failure", callback);
-        ConnectCallback("rustore_pay_on_purchase_two_step_success", callback);
-        ConnectCallback("rustore_pay_on_purchase_two_step_failure", callback);
-        ConnectCallback("rustore_pay_on_get_purchases_success", callback);
-        ConnectCallback("rustore_pay_on_get_purchases_failure", callback);
+        const char* channels[] = {
+            "rustore_pay_on_purchase_success",
+            "rustore_pay_on_purchase_failure",
+            "rustore_pay_on_purchase_two_step_success",
+            "rustore_pay_on_purchase_two_step_failure",
+            "rustore_pay_on_get_purchases_success",
+            "rustore_pay_on_get_purchases_failure"
+        };
+        ReplaceCallbacks(channels, sizeof(channels) / sizeof(channels[0]), callback);
 
         GetRuStorePurchases();
         return 0;

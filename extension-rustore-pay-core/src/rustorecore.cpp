@@ -67,12 +67,77 @@ static int Connect(lua_State* L)
     return 0;
 }
 
+static void PushDecodedJson(lua_State* L, const char* value)
+{
+    lua_pushstring(L, value);
+    lua_getglobal(L, "json");           // stack: json_str, json
+    lua_getfield(L, -1, "decode");      // stack: json_str, json, json.decode
+    lua_insert(L, -3);                  // stack: json.decode, json, json_str
+    lua_pop(L, 1);                      // stack: json.decode, json_str
+    lua_call(L, 1, 1);                  // stack: table
+}
+
+static void CallCallbackWithDecodedJsonItems(dmScript::LuaCallbackInfo* callback, const char* value)
+{
+    lua_State* L = dmScript::GetCallbackLuaContext(callback);
+    int top = lua_gettop(L);
+
+    PushDecodedJson(L, value);
+    int decodedRef = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    lua_rawgeti(L, LUA_REGISTRYINDEX, decodedRef);
+    int count = lua_istable(L, -1) ? lua_objlen(L, -1) : 0;
+    lua_pop(L, 1);
+
+    if (count > 0) {
+        for (int i = 1; i <= count; i++) {
+            if (!dmScript::SetupCallback(callback)) continue;
+
+            lua_rawgeti(L, LUA_REGISTRYINDEX, decodedRef);
+            lua_rawgeti(L, -1, i);
+            lua_remove(L, -2);
+
+            dmScript::PCall(L, 2, 0); // self + # user arguments
+            dmScript::TeardownCallback(callback);
+        }
+    } else {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, decodedRef);
+        bool hasObjectPayload = !lua_istable(L, -1);
+        if (lua_istable(L, -1)) {
+            lua_pushnil(L);
+            if (lua_next(L, -2) != 0) {
+                hasObjectPayload = true;
+                lua_pop(L, 2);
+            }
+        }
+
+        lua_pop(L, 1);
+        if (hasObjectPayload) {
+            if (dmScript::SetupCallback(callback)) {
+                lua_rawgeti(L, LUA_REGISTRYINDEX, decodedRef);
+                dmScript::PCall(L, 2, 0); // self + # user arguments
+                dmScript::TeardownCallback(callback);
+            }
+        }
+    }
+
+    luaL_unref(L, LUA_REGISTRYINDEX, decodedRef);
+    assert(top == lua_gettop(L));
+}
+
 int ConnectCallback(const char* channel, dmScript::LuaCallbackInfo* callback)
 {
     dmLogInfo("ConnectCallback %s", channel);
 
     auto channelCallbackItem = std::make_shared<ChannelCallbackItem>(channel, callback);
     ChannelCallbackManager::Instance()->AddChannelCallback(channelCallbackItem);
+
+    return 0;
+}
+
+int ReplaceCallbacks(const char** channels, int channelCount, dmScript::LuaCallbackInfo* callback)
+{
+    ChannelCallbackManager::Instance()->ReplaceChannelCallbacks(channels, channelCount, callback);
 
     return 0;
 }
@@ -602,7 +667,8 @@ static void ProcessOneParam(QueueCallbackItem* item)
 
         DM_LUA_STACK_CHECK(L, 0);
 
-        if (!dmScript::SetupCallback(callback)) continue;
+        bool setupCallback = strcmp(channel, "rustore_pay_on_get_purchases_success") != 0;
+        if (setupCallback && !dmScript::SetupCallback(callback)) continue;
 
 #if defined(DM_PLATFORM_ANDROID)
             dmLogInfo("callback value send = %s", value);
@@ -685,17 +751,8 @@ static void ProcessOneParam(QueueCallbackItem* item)
                 const char *ctext = env->GetStringUTFChars(result, nullptr);
 
                 dmLogInfo("rustore_pay_on_get_purchases_success callback new value send = %s", ctext);
-                
-                lua_pushstring(L, ctext);
-                lua_getglobal(L, "json");           // stack: json_str, json
-                lua_getfield(L, -1, "decode");      // stack: json_str, json, json.decode
-                lua_insert(L, -3);                  // stack: json.decode, json, json_str
-                lua_pop(L, 1);                      // stack: json.decode, json_str
-                lua_call(L, 1, 1);                  // stack: table
 
-                dmScript::PCall(L, 2, 0); // self + # user arguments
-
-                dmScript::TeardownCallback(callback);
+                CallCallbackWithDecodedJsonItems(callback, ctext);
             } else if (strcmp(channel, "rustore_pay_on_get_purchases_failure") == 0) {
                 jclass cls = dmAndroid::LoadClass(env, "ru.rustore.defold.core.RuStoreJsonConverter");
                 jmethodID convertMethod = env->GetStaticMethodID(cls, "getPurchaseProductFailure", "()Ljava/lang/String;");
