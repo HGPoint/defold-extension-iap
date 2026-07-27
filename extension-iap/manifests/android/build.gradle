@@ -3,7 +3,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.android.billingclient:billing:7.0.0'
+    implementation 'com.android.billingclient:billing:8.3.0'
     implementation "ru.rustore.sdk:pay:10.3.1"
     implementation "com.google.code.gson:gson:2.10.1"
 }
