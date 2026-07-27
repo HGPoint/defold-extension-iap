@@ -44,6 +44,19 @@ struct IAP
 
 static IAP g_IAP;
 
+static bool IAP_IsRuStoreTwoStepTransaction(lua_State* L, int transactionIndex)
+{
+    bool isTwoStep = false;
+
+    lua_getfield(L, transactionIndex, "purchaseType");
+    if (lua_isstring(L, -1) && strcmp(lua_tostring(L, -1), "TWO_STEP") == 0) {
+        isTwoStep = true;
+    }
+    lua_pop(L, 1);
+
+    return isTwoStep;
+}
+
 static int IAP_ProcessPendingTransactions(lua_State* L)
 {
     DM_LUA_STACK_CHECK(L, 0);
@@ -177,7 +190,11 @@ static int IAP_Finish(lua_State* L)
 
         if(g_IAP.m_isRuStoreInstalled){
             //bool auth = GetCoreAuthorizationStatus();
-            RuStoreConfirmTwoStepPurchase(receipt);
+            if (IAP_IsRuStoreTwoStepTransaction(L, 1)) {
+                RuStoreConfirmTwoStepPurchase(receipt);
+            } else {
+                dmLogInfo("RuStore iap.finish ignored for one-step or non-confirmable transaction.");
+            }
         } else {
             
             jstring receiptUTF = env->NewStringUTF(receipt);
