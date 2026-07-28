@@ -13,6 +13,7 @@ bool GetCoreAuthorizationStatus();
 void CallBackCancelPurchase();
 int ConnectCallback(const char* channel, dmScript::LuaCallbackInfo* callback);
 int ReplaceCallbacks(const char** channels, int channelCount, dmScript::LuaCallbackInfo* callback);
+void SetRuStorePurchaseFilterHours(int hours);
 bool IsRuStoreInstalled();
 
 #endif  // RUSTORECORE_H

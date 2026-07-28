@@ -113,13 +113,13 @@ int GetRuStoreProducts(lua_State* L)
     return 0;
 }
 
-int GetRuStorePurchases()
+int GetRuStorePurchases(const char* purchaseStatus)
 {
     dmAndroid::ThreadAttacher thread;
     JNIEnv* env = thread.GetEnv();
 
     const char* productType = "";
-    const char* purchaseStatus = "PAID";
+    dmLogInfo("RuStore getPurchases productType='%s' purchaseStatus='%s'", productType, purchaseStatus);
 
     jstring jproductType = env->NewStringUTF(productType);
     jstring jpurchaseStatus = env->NewStringUTF(purchaseStatus);

@@ -194,6 +194,7 @@ Current behavior:
 - Generates a new UUID for `appUserId` and `orderId` for each purchase call.
 - Does not expose custom `developerPayload`, `appUserEmail`, custom quantity, custom order ID, or SDK theme through the public `iap.buy()` call.
 - Can switch to guaranteed two-step mode through `iap.rustore_use_two_step_purchase = 1` in `game.project`.
+- In one-step mode, restored purchase callbacks are limited to purchases from the last `iap.rustore_one_step_purchase_filter_hour` hours. The default is `24`.
 
 RuStore two-step support exists in C++ through `RuStorePurchaseTwoStep(productId)`, but `iap.buy()` calls `RuStorePurchase(productId)` by default.
 
@@ -209,21 +210,33 @@ The listener is registered for the following RuStore channels:
 | `rustore_pay_on_purchase_failure` | Failed transaction table. |
 | `rustore_pay_on_purchase_two_step_success` | Purchase transaction table. |
 | `rustore_pay_on_purchase_two_step_failure` | Failed transaction table. |
+| `rustore_pay_on_confirm_two_step_purchase_failure` | Failed transaction table, except non-confirmable purchase type errors are ignored. |
 | `rustore_pay_on_get_purchases_success` | Restored or active purchase transaction table. |
 | `rustore_pay_on_get_purchases_failure` | Failed transaction table. |
 
 After registering callbacks, the implementation calls `GetRuStorePurchases()`.
 
-Current `GetRuStorePurchases()` filter:
+Current `GetRuStorePurchases()` behavior depends on `iap.rustore_use_two_step_purchase`:
 
-```cpp
-const char* productType = "";
-const char* purchaseStatus = "PAID";
+| Config | RuStore SDK request | Additional local filter |
+|---|---|---|
+| `iap.rustore_use_two_step_purchase = 1` | One request with `productType = ""`, `purchaseStatus = "ProductPurchaseStatus.PAID"` | none |
+| `iap.rustore_use_two_step_purchase = 0` or missing | Two requests with `productType = ""`, `purchaseStatus = "ProductPurchaseStatus.PAID"` and `purchaseStatus = "ProductPurchaseStatus.CONFIRMED"` | purchase `purchaseTime` must be within the last `iap.rustore_one_step_purchase_filter_hour` hours |
+
+The default one-step local time filter is:
+
+```ini
+[iap]
+rustore_one_step_purchase_filter_hour = 24
 ```
 
-The implementation explicitly requests `PAID` purchases to stay close to the original Defold Google Play behavior, where `iap.set_listener()` and `iap.restore()` return non-finished active purchases rather than already consumed or completed purchases.
+Setting `iap.rustore_one_step_purchase_filter_hour = 0` disables the local time filter.
 
-RuStore `CONFIRMED` purchases are not restored by default. Returning `CONFIRMED` consumables can make game code treat already completed payments as new `TRANS_STATE_PURCHASED` transactions and grant or consume them again unless the game has strict idempotency by `purchaseId` or `invoiceId`.
+In two-step mode, the implementation explicitly requests `ProductPurchaseStatus.PAID` purchases to stay close to the original Defold Google Play behavior, where `iap.set_listener()` and `iap.restore()` return non-finished active purchases rather than already consumed or completed purchases.
+
+In one-step mode, RuStore SDK is queried separately for `ProductPurchaseStatus.PAID` and `ProductPurchaseStatus.CONFIRMED`. The callback converter only returns purchases from the configured recent time window. Purchases without a parseable `purchaseTime` are excluded when the time filter is enabled. Because the SDK requests are separate, the Lua listener can receive matching purchases in two callback batches.
+
+RuStore `CONFIRMED` two-step purchases are not restored by default. Returning `CONFIRMED` consumables can make game code treat already completed payments as new `TRANS_STATE_PURCHASED` transactions and grant or consume them again unless the game has strict idempotency by `purchaseId` or `invoiceId`.
 
 Repeated `iap.set_listener()` calls replace the previous internal RuStore IAP listener callback registrations for purchase and restore channels instead of accumulating duplicate callbacks.
 
@@ -233,16 +246,17 @@ RuStore path:
 
 | Defold IAP | RuStore |
 |---|---|
-| `iap.finish(transaction)` | `RuStorePay.confirmTwoStepPurchase(transaction.receipt, "")` only when the original RuStore transaction has `purchaseType == "TWO_STEP"`. |
+| `iap.finish(transaction)` | `RuStorePay.confirmTwoStepPurchase(transaction.receipt, "")` unless the original RuStore transaction has `purchaseType == "ONE_STEP"`. |
 
 The transaction must contain `state == iap.TRANS_STATE_PURCHASED` and a string `receipt` field.
 
-In the current converter, RuStore `purchaseId` is used as `receipt`, so `iap.finish()` confirms a two-step purchase using `purchaseId` when the transaction has the original RuStore field `purchaseType == "TWO_STEP"`.
+In the current converter, RuStore `purchaseId` is used as `receipt`, so `iap.finish()` confirms a purchase using `purchaseId` unless the transaction is explicitly marked with the original RuStore field `purchaseType == "ONE_STEP"`.
 
 Current behavior:
 
-- Two-step transactions call `confirmTwoStepPurchase()`.
-- One-step transactions are ignored with a log message to avoid invalid RuStore confirmation calls.
+- Transactions with `purchaseType == "ONE_STEP"` are ignored with a log message to avoid invalid RuStore confirmation calls.
+- Transactions with `purchaseType == "TWO_STEP"`, `purchaseType == "UNDEFINED"`, missing `purchaseType`, or any other value call `confirmTwoStepPurchase()`.
+- `rustore_pay_on_confirm_two_step_purchase_failure` is forwarded as a failed transaction, except invalid purchase type errors such as RuStore code `4000026` are logged and ignored because they indicate a non-confirmable purchase type such as `ONE_STEP`.
 
 ### `iap.acknowledge(transaction)`
 
@@ -252,7 +266,7 @@ RuStore path:
 |---|---|
 | `iap.acknowledge(transaction)` | No-op with a log message. |
 
-RuStore has no direct Google Play acknowledge equivalent in this integration. Confirmation for guaranteed two-step purchases is handled by `iap.finish()` when the original transaction has `purchaseType == "TWO_STEP"`.
+RuStore has no direct Google Play acknowledge equivalent in this integration. Confirmation for confirmable RuStore purchases is handled by `iap.finish()` unless the original transaction has `purchaseType == "ONE_STEP"`.
 
 ### `iap.restore()`
 

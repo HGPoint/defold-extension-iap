@@ -6,6 +6,7 @@
 
 #include <dmsdk/sdk.h>
 #include <dmsdk/dlib/android.h>
+#include <string.h>
 #include "RuStoreChannelListener.h"
 #include "ChannelCallbackManager.h"
 #include "AndroidJavaObject.h"
@@ -619,6 +620,11 @@ bool GetCoreAuthorizationStatus()
     return g_IAPCore.m_authorizationStatus;
 }
 
+void SetRuStorePurchaseFilterHours(int hours)
+{
+    g_IAPCore.m_ruStorePurchaseFilterHours = hours;
+}
+
 void CallBackCancelPurchase(){
 #if defined(DM_PLATFORM_ANDROID)
 
@@ -764,9 +770,10 @@ static void ProcessOneParam(QueueCallbackItem* item)
             } else if (strcmp(channel, "rustore_pay_on_get_purchases_success") == 0) {
                 g_IAPCore.m_authorizationStatus = true;
                 jclass cls = dmAndroid::LoadClass(env, "ru.rustore.defold.core.RuStoreJsonConverter");
-                jmethodID convertMethod = env->GetStaticMethodID(cls, "convertPurchasesDetails", "(Ljava/lang/String;)Ljava/lang/String;");
+                jmethodID convertMethod = env->GetStaticMethodID(cls, "convertPurchasesDetails", "(Ljava/lang/String;I)Ljava/lang/String;");
                 jstring jvalue = env->NewStringUTF(value);
-                jstring result = (jstring) env->CallStaticObjectMethod(cls, convertMethod, jvalue);
+                jint jfilterHours = (jint)g_IAPCore.m_ruStorePurchaseFilterHours;
+                jstring result = (jstring) env->CallStaticObjectMethod(cls, convertMethod, jvalue, jfilterHours);
                 const char *ctext = env->GetStringUTFChars(result, nullptr);
 
                 dmLogInfo("rustore_pay_on_get_purchases_success callback new value send = %s", ctext);
@@ -856,6 +863,17 @@ static void ProcessOneParam(QueueCallbackItem* item)
     }
 }
 
+static bool IsConfirmFailureForNonConfirmablePurchase(const char* errorJson)
+{
+    if (errorJson == 0) {
+        return false;
+    }
+
+    return strstr(errorJson, "4000026") != 0 ||
+           strstr(errorJson, "Invalid purchase type") != 0 ||
+           strstr(errorJson, "invalid purchase type") != 0;
+}
+
 static void ProcessTwoParam(QueueCallbackItemTwoParams* item)
 {
     const char* channel = item->channel.c_str();
@@ -883,7 +901,31 @@ static void ProcessTwoParam(QueueCallbackItemTwoParams* item)
         JNIEnv* env = thread.GetEnv();
 
         if(strcmp(channel, "rustore_pay_on_confirm_two_step_purchase_failure") == 0) {
-            //TODO
+            if (IsConfirmFailureForNonConfirmablePurchase(value0)) {
+                dmLogInfo("RuStore confirm two-step failure ignored for non-confirmable purchase: %s", value0);
+                dmScript::TeardownCallback(callback);
+                continue;
+            }
+
+            jclass cls = dmAndroid::LoadClass(env, "ru.rustore.defold.core.RuStoreJsonConverter");
+            jmethodID convertMethod = env->GetStaticMethodID(cls, "convertPurchaseProductFailure", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+            jstring jvalue0 = env->NewStringUTF(value0);
+            jstring jvalue1 = env->NewStringUTF(value1);
+            jstring result = (jstring) env->CallStaticObjectMethod(cls, convertMethod, jvalue0, jvalue1);
+            const char *ctext = env->GetStringUTFChars(result, nullptr);
+
+            dmLogInfo("rustore_pay_on_confirm_two_step_purchase_failure callback new value send = %s", ctext);
+
+            lua_pushstring(L, ctext);
+            lua_getglobal(L, "json");           // stack: json_str, json
+            lua_getfield(L, -1, "decode");      // stack: json_str, json, json.decode
+            lua_insert(L, -3);                  // stack: json.decode, json, json_str
+            lua_pop(L, 1);                      // stack: json.decode, json_str
+            lua_call(L, 1, 1);                  // stack: table
+
+            dmScript::PCall(L, 2, 0); // self + # user arguments
+
+            dmScript::TeardownCallback(callback);
         } else if (strcmp(channel, "rustore_pay_on_purchase_failure") == 0) {
 
             jclass cls = dmAndroid::LoadClass(env, "ru.rustore.defold.core.RuStoreJsonConverter");

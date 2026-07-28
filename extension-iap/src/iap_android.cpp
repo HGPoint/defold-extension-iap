@@ -21,12 +21,14 @@ struct IAP
         m_isRuStoreInstalled = false;
         m_useOnlyRuStore = false;
         m_useRuStoreTwoStepPurchase = false;
+        m_ruStoreOneStepPurchaseFilterHours = 24;
         m_ProviderId = PROVIDER_ID_GOOGLE;
     }
     bool            m_autoFinishTransactions;
     bool            m_isRuStoreInstalled;
     bool            m_useOnlyRuStore;
     bool            m_useRuStoreTwoStepPurchase;
+    int             m_ruStoreOneStepPurchaseFilterHours;
     int             m_ProviderId;
 
     dmScript::LuaCallbackInfo* m_Listener;
@@ -48,17 +50,31 @@ static IAP g_IAP;
 
 static void IAP_RegisterLua(lua_State* L);
 
-static bool IAP_IsRuStoreTwoStepTransaction(lua_State* L, int transactionIndex)
+static int IAP_GetRuStorePurchases()
 {
-    bool isTwoStep = false;
+    if (g_IAP.m_useRuStoreTwoStepPurchase) {
+        SetRuStorePurchaseFilterHours(0);
+        GetRuStorePurchases("ProductPurchaseStatus.PAID");
+    } else {
+        SetRuStorePurchaseFilterHours(g_IAP.m_ruStoreOneStepPurchaseFilterHours);
+        GetRuStorePurchases("ProductPurchaseStatus.PAID");
+        GetRuStorePurchases("ProductPurchaseStatus.CONFIRMED");
+    }
+
+    return 0;
+}
+
+static bool IAP_IsRuStoreOneStepTransaction(lua_State* L, int transactionIndex)
+{
+    bool isOneStep = false;
 
     lua_getfield(L, transactionIndex, "purchaseType");
-    if (lua_isstring(L, -1) && strcmp(lua_tostring(L, -1), "TWO_STEP") == 0) {
-        isTwoStep = true;
+    if (lua_isstring(L, -1) && strcmp(lua_tostring(L, -1), "ONE_STEP") == 0) {
+        isOneStep = true;
     }
     lua_pop(L, 1);
 
-    return isTwoStep;
+    return isOneStep;
 }
 
 static int IAP_ProcessPendingTransactions(lua_State* L)
@@ -66,7 +82,7 @@ static int IAP_ProcessPendingTransactions(lua_State* L)
     DM_LUA_STACK_CHECK(L, 0);
 
     if(g_IAP.m_isRuStoreInstalled){
-        GetRuStorePurchases();
+        IAP_GetRuStorePurchases();
         return 0;
     }
 
@@ -200,10 +216,10 @@ static int IAP_Finish(lua_State* L)
 
         if(g_IAP.m_isRuStoreInstalled){
             //bool auth = GetCoreAuthorizationStatus();
-            if (IAP_IsRuStoreTwoStepTransaction(L, 1)) {
-                RuStoreConfirmTwoStepPurchase(receipt);
+            if (IAP_IsRuStoreOneStepTransaction(L, 1)) {
+                dmLogInfo("RuStore iap.finish ignored for one-step transaction.");
             } else {
-                dmLogInfo("RuStore iap.finish ignored for one-step or non-confirmable transaction.");
+                RuStoreConfirmTwoStepPurchase(receipt);
             }
         } else {
             
@@ -266,7 +282,7 @@ static int IAP_Restore(lua_State* L)
     DM_LUA_STACK_CHECK(L, 1);
 
     if(g_IAP.m_isRuStoreInstalled){
-        GetRuStorePurchases();
+        IAP_GetRuStorePurchases();
         lua_pushboolean(L, 1);
         return 1;
     }
@@ -296,12 +312,13 @@ static int IAP_SetListener(lua_State* L)
             "rustore_pay_on_purchase_failure",
             "rustore_pay_on_purchase_two_step_success",
             "rustore_pay_on_purchase_two_step_failure",
+            "rustore_pay_on_confirm_two_step_purchase_failure",
             "rustore_pay_on_get_purchases_success",
             "rustore_pay_on_get_purchases_failure"
         };
         ReplaceCallbacks(channels, sizeof(channels) / sizeof(channels[0]), callback);
 
-        GetRuStorePurchases();
+        IAP_GetRuStorePurchases();
         return 0;
     }
 
@@ -507,8 +524,13 @@ static dmExtension::Result InitializeIAP(dmExtension::Params* params)
     g_IAP.m_autoFinishTransactions = dmConfigFile::GetInt(params->m_ConfigFile, "iap.auto_finish_transactions", 1) == 1;
     g_IAP.m_useOnlyRuStore = dmConfigFile::GetInt(params->m_ConfigFile, "iap.use_only_rustore", 0) == 1;
     g_IAP.m_useRuStoreTwoStepPurchase = dmConfigFile::GetInt(params->m_ConfigFile, "iap.rustore_use_two_step_purchase", 0) == 1;
+    g_IAP.m_ruStoreOneStepPurchaseFilterHours = dmConfigFile::GetInt(params->m_ConfigFile, "iap.rustore_one_step_purchase_filter_hour", 24);
+    if (g_IAP.m_ruStoreOneStepPurchaseFilterHours < 0) {
+        g_IAP.m_ruStoreOneStepPurchaseFilterHours = 0;
+    }
     dmLogInfo("RuStore-only IAP mode: %s", g_IAP.m_useOnlyRuStore ? "enabled" : "disabled");
     dmLogInfo("RuStore two-step purchase mode: %s", g_IAP.m_useRuStoreTwoStepPurchase ? "enabled" : "disabled");
+    dmLogInfo("RuStore one-step purchase filter: last %d hour(s)", g_IAP.m_ruStoreOneStepPurchaseFilterHours);
 
     bool isRuStoreInstalled = IsRuStoreInstalled();
     if(g_IAP.m_useOnlyRuStore || isRuStoreInstalled){
