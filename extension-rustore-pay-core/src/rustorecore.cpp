@@ -767,6 +767,26 @@ static void ProcessOneParam(QueueCallbackItem* item)
                 dmScript::PCall(L, 2, 0); // self + # user arguments
 
                 dmScript::TeardownCallback(callback);
+            } else if (strcmp(channel, "rustore_pay_on_confirm_two_step_purchase_success") == 0) {
+
+                jclass cls = dmAndroid::LoadClass(env, "ru.rustore.defold.core.RuStoreJsonConverter");
+                jmethodID convertMethod = env->GetStaticMethodID(cls, "convertConfirmTwoStepPurchaseSuccess", "(Ljava/lang/String;)Ljava/lang/String;");
+                jstring jvalue = env->NewStringUTF(value);
+                jstring result = (jstring) env->CallStaticObjectMethod(cls, convertMethod, jvalue);
+                const char *ctext = env->GetStringUTFChars(result, nullptr);
+
+                dmLogInfo("rustore_pay_on_confirm_two_step_purchase_success callback new value send = %s", ctext);
+
+                lua_pushstring(L, ctext);
+                lua_getglobal(L, "json");           // stack: json_str, json
+                lua_getfield(L, -1, "decode");      // stack: json_str, json, json.decode
+                lua_insert(L, -3);                  // stack: json.decode, json, json_str
+                lua_pop(L, 1);                      // stack: json.decode, json_str
+                lua_call(L, 1, 1);                  // stack: table
+
+                dmScript::PCall(L, 2, 0); // self + # user arguments
+
+                dmScript::TeardownCallback(callback);
             } else if (strcmp(channel, "rustore_pay_on_get_purchases_success") == 0) {
                 g_IAPCore.m_authorizationStatus = true;
                 jclass cls = dmAndroid::LoadClass(env, "ru.rustore.defold.core.RuStoreJsonConverter");
@@ -871,7 +891,9 @@ static bool IsConfirmFailureForNonConfirmablePurchase(const char* errorJson)
 
     return strstr(errorJson, "4000026") != 0 ||
            strstr(errorJson, "Invalid purchase type") != 0 ||
-           strstr(errorJson, "invalid purchase type") != 0;
+           strstr(errorJson, "invalid purchase type") != 0 ||
+           strstr(errorJson, "4000027") != 0 ||
+           strstr(errorJson, "Invalid purchase status") != 0;
 }
 
 static void ProcessTwoParam(QueueCallbackItemTwoParams* item)
@@ -893,6 +915,11 @@ static void ProcessTwoParam(QueueCallbackItemTwoParams* item)
 
         DM_LUA_STACK_CHECK(L, 0);
 
+        if(strcmp(channel, "rustore_pay_on_confirm_two_step_purchase_failure") == 0 && IsConfirmFailureForNonConfirmablePurchase(value0)) {
+            dmLogInfo("RuStore confirm two-step failure ignored for non-confirmable purchase: %s", value0);
+            continue;
+        }
+
         if (!dmScript::SetupCallback(callback)) continue;
 
 #if defined(DM_PLATFORM_ANDROID)
@@ -901,12 +928,6 @@ static void ProcessTwoParam(QueueCallbackItemTwoParams* item)
         JNIEnv* env = thread.GetEnv();
 
         if(strcmp(channel, "rustore_pay_on_confirm_two_step_purchase_failure") == 0) {
-            if (IsConfirmFailureForNonConfirmablePurchase(value0)) {
-                dmLogInfo("RuStore confirm two-step failure ignored for non-confirmable purchase: %s", value0);
-                dmScript::TeardownCallback(callback);
-                continue;
-            }
-
             jclass cls = dmAndroid::LoadClass(env, "ru.rustore.defold.core.RuStoreJsonConverter");
             jmethodID convertMethod = env->GetStaticMethodID(cls, "convertPurchaseProductFailure", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
             jstring jvalue0 = env->NewStringUTF(value0);

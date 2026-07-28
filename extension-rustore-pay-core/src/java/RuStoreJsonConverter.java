@@ -350,4 +350,32 @@ public class RuStoreJsonConverter {
             return "{}";
         }
     }
+
+	public static String convertConfirmTwoStepPurchaseSuccess(String purchaseId) {
+		Log.d(TAG, "INFO:RUSTORECORE: convertConfirmTwoStepPurchaseSuccess(" + purchaseId + ")");
+
+        try {
+			JSONObject raw = new JSONObject();
+			raw.put("purchaseId", purchaseId);
+
+			JSONObject original = new JSONObject();
+			original.put("ident", "");
+			original.put("state", 1);
+			original.put("status", "CONFIRMED");
+			original.put("purchaseType", "TWO_STEP");
+			original.put("date", toISO8601(new Date()));
+			original.put("trans_ident", purchaseId);
+			original.put("receipt", purchaseId);
+			original.put("purchaseId", purchaseId);
+			original.put("original_json", raw.toString());
+
+			String result = original.toString();
+			Log.d(TAG, "INFO:RUSTORECORE: convertConfirmTwoStepPurchaseSuccess() => " + result);
+			return result;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "{}";
+        }
+    }
 }

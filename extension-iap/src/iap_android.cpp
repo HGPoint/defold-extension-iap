@@ -312,6 +312,7 @@ static int IAP_SetListener(lua_State* L)
             "rustore_pay_on_purchase_failure",
             "rustore_pay_on_purchase_two_step_success",
             "rustore_pay_on_purchase_two_step_failure",
+            "rustore_pay_on_confirm_two_step_purchase_success",
             "rustore_pay_on_confirm_two_step_purchase_failure",
             "rustore_pay_on_get_purchases_success",
             "rustore_pay_on_get_purchases_failure"

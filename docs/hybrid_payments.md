@@ -210,6 +210,7 @@ The listener is registered for the following RuStore channels:
 | `rustore_pay_on_purchase_failure` | Failed transaction table. |
 | `rustore_pay_on_purchase_two_step_success` | Purchase transaction table. |
 | `rustore_pay_on_purchase_two_step_failure` | Failed transaction table. |
+| `rustore_pay_on_confirm_two_step_purchase_success` | Confirmed transaction table with `receipt` and `trans_ident` set to `purchaseId`; `ident` is empty because the SDK event contains only `purchaseId`. |
 | `rustore_pay_on_confirm_two_step_purchase_failure` | Failed transaction table, except non-confirmable purchase type errors are ignored. |
 | `rustore_pay_on_get_purchases_success` | Restored or active purchase transaction table. |
 | `rustore_pay_on_get_purchases_failure` | Failed transaction table. |
@@ -256,6 +257,7 @@ Current behavior:
 
 - Transactions with `purchaseType == "ONE_STEP"` are ignored with a log message to avoid invalid RuStore confirmation calls.
 - Transactions with `purchaseType == "TWO_STEP"`, `purchaseType == "UNDEFINED"`, missing `purchaseType`, or any other value call `confirmTwoStepPurchase()`.
+- `rustore_pay_on_confirm_two_step_purchase_success` is forwarded as a purchased transaction table with `status = "CONFIRMED"` and `purchaseType = "TWO_STEP"`. The SDK success event contains only `purchaseId`, so the callback sets `receipt`, `trans_ident`, and `purchaseId` to that value and leaves `ident` empty.
 - `rustore_pay_on_confirm_two_step_purchase_failure` is forwarded as a failed transaction, except invalid purchase type errors such as RuStore code `4000026` are logged and ignored because they indicate a non-confirmable purchase type such as `ONE_STEP`.
 
 ### `iap.acknowledge(transaction)`
