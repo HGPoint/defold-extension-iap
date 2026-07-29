@@ -10,8 +10,10 @@ struct IAPCore
     {
         memset(this, 0, sizeof(*this));
         m_authorizationStatus = false;
+        m_ruStorePurchaseFilterHours = 0;
     }
     bool m_authorizationStatus;
+    int m_ruStorePurchaseFilterHours;
 };
 
 #endif  // IAPCORE_H

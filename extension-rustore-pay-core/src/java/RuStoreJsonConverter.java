@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.HashMap;
 import android.app.Activity;
@@ -83,6 +84,8 @@ public class RuStoreJsonConverter {
         int defoldState = 4;
         switch(purchaseType) {
             case "PROCESSING":
+            case "ProductPurchaseStatus.PROCESSING":
+            case "ProductPurchaseStatus.INVOICE_CREATED":
                 defoldState = 0;
                 break;
 			case "Failure":
@@ -92,10 +95,17 @@ public class RuStoreJsonConverter {
 			case "EXPIRED":
 			case "REFUNDED":
 			case "REVERSED":
+            case "ProductPurchaseStatus.CANCELLED":
+            case "ProductPurchaseStatus.REJECTED":
+            case "ProductPurchaseStatus.REFUNDED":
+            case "ProductPurchaseStatus.REVERSED":
+            case "ProductPurchaseStatus.EXPIRED":
                 defoldState = 2;
                 break;
             case "PAID":
+            case "ProductPurchaseStatus.PAID":
             case "Success":
+            case "ProductPurchaseStatus.CONFIRMED":
             case "CONFIRMED":
                 defoldState = 1;
                 break;
@@ -106,7 +116,55 @@ public class RuStoreJsonConverter {
         return defoldState;
     }
 
-	public static String convertPurchasesDetails(String jsonString) {
+    private static boolean isInvoiceCreatedStatus(String status) {
+        return status.equals("INVOICE_CREATED") || status.equals("ProductPurchaseStatus.INVOICE_CREATED");
+    }
+
+    private static boolean isConfirmedStatus(String status) {
+        return status.equals("CONFIRMED") || status.equals("ProductPurchaseStatus.CONFIRMED");
+    }
+
+    private static Date parsePurchaseTime(String purchaseTime) {
+        String[] patterns = {
+            "MMM d, yyyy h:mm:ss a",
+            "MMM d, yyyy, h:mm:ss a",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mm:ssZ"
+        };
+
+        for (String pattern : patterns) {
+            try {
+                SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
+                format.setLenient(false);
+                return format.parse(purchaseTime);
+            } catch (Exception ignored) {
+            }
+        }
+
+        return null;
+    }
+
+    private static boolean isPurchaseWithinLastHours(JSONObject purchase, int filterHours) {
+        if (filterHours <= 0) {
+            return true;
+        }
+
+        if (!purchase.has("purchaseTime") || purchase.isNull("purchaseTime")) {
+            return false;
+        }
+
+        Date purchaseDate = parsePurchaseTime(purchase.optString("purchaseTime", ""));
+        if (purchaseDate == null) {
+            Log.w(TAG, "INFO:RUSTORECORE: failed to parse purchaseTime: " + purchase.optString("purchaseTime", ""));
+            return false;
+        }
+
+        long filterMillis = filterHours * 60L * 60L * 1000L;
+        long minPurchaseTime = System.currentTimeMillis() - filterMillis;
+        return purchaseDate.getTime() >= minPurchaseTime;
+    }
+
+	public static String convertPurchasesDetails(String jsonString, int filterHours) {
 
 		//{"amountLabel":"1 ₽",
 		//"currency":"RUB",
@@ -134,12 +192,16 @@ public class RuStoreJsonConverter {
 
 			}
 			
-			JSONObject original = null;
+			JSONArray transformedArray = new JSONArray();
 			for (int i = 0; i < jsonArray.length(); i++) {
-				original = jsonArray.getJSONObject(i);
-
+				JSONObject original = jsonArray.getJSONObject(i);
 				String status = original.getString("status");
-				if(status.equals("INVOICE_CREATED")){
+
+				if (isConfirmedStatus(status) && !isPurchaseWithinLastHours(original, filterHours)) {
+					continue;
+				}
+
+				if(isInvoiceCreatedStatus(status)){
 					continue;
 				}
 
@@ -175,19 +237,16 @@ public class RuStoreJsonConverter {
 				if (original.has("price")) {
 					original.put("amount", original.getDouble("price")*.01);
 				}
-				//return original.toString();
+
+				transformedArray.put(original);
 			}
 
-			if(original != null){
-				Log.d(TAG, "INFO:RUSTORECORE: convertPurchasesDetails() => " + original.toString());
-				return original.toString();
-			}
-
-			return "{ \"state\":2, \"date\":\"" + toISO8601(new Date()) + "\", \"ident\":\"\" }";
+			Log.d(TAG, "INFO:RUSTORECORE: convertPurchasesDetails() => " + transformedArray.toString());
+			return transformedArray.toString();
 
         } catch (Exception e) {
             e.printStackTrace();
-            return "{}";
+			return "[]";
         }
     }
 
@@ -288,6 +347,34 @@ public class RuStoreJsonConverter {
 
 			String result = original.toString();
 			Log.d(TAG, "INFO:RUSTORECORE: convertPurchaseDetails() => " + result);
+			return result;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "{}";
+        }
+    }
+
+	public static String convertConfirmTwoStepPurchaseSuccess(String purchaseId) {
+		Log.d(TAG, "INFO:RUSTORECORE: convertConfirmTwoStepPurchaseSuccess(" + purchaseId + ")");
+
+        try {
+			JSONObject raw = new JSONObject();
+			raw.put("purchaseId", purchaseId);
+
+			JSONObject original = new JSONObject();
+			original.put("ident", "");
+			original.put("state", 1);
+			original.put("status", "CONFIRMED");
+			original.put("purchaseType", "TWO_STEP");
+			original.put("date", toISO8601(new Date()));
+			original.put("trans_ident", purchaseId);
+			original.put("receipt", purchaseId);
+			original.put("purchaseId", purchaseId);
+			original.put("original_json", raw.toString());
+
+			String result = original.toString();
+			Log.d(TAG, "INFO:RUSTORECORE: convertConfirmTwoStepPurchaseSuccess() => " + result);
 			return result;
 
         } catch (Exception e) {

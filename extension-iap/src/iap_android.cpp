@@ -19,10 +19,16 @@ struct IAP
         memset(this, 0, sizeof(*this));
         m_autoFinishTransactions = true;
         m_isRuStoreInstalled = false;
+        m_useOnlyRuStore = false;
+        m_useRuStoreTwoStepPurchase = false;
+        m_ruStoreOneStepPurchaseFilterHours = 24;
         m_ProviderId = PROVIDER_ID_GOOGLE;
     }
     bool            m_autoFinishTransactions;
     bool            m_isRuStoreInstalled;
+    bool            m_useOnlyRuStore;
+    bool            m_useRuStoreTwoStepPurchase;
+    int             m_ruStoreOneStepPurchaseFilterHours;
     int             m_ProviderId;
 
     dmScript::LuaCallbackInfo* m_Listener;
@@ -42,9 +48,43 @@ struct IAP
 
 static IAP g_IAP;
 
+static void IAP_RegisterLua(lua_State* L);
+
+static int IAP_GetRuStorePurchases()
+{
+    if (g_IAP.m_useRuStoreTwoStepPurchase) {
+        SetRuStorePurchaseFilterHours(0);
+        GetRuStorePurchases("ProductPurchaseStatus.PAID");
+    } else {
+        SetRuStorePurchaseFilterHours(g_IAP.m_ruStoreOneStepPurchaseFilterHours);
+        GetRuStorePurchases("ProductPurchaseStatus.PAID");
+        GetRuStorePurchases("ProductPurchaseStatus.CONFIRMED");
+    }
+
+    return 0;
+}
+
+static bool IAP_IsRuStoreOneStepTransaction(lua_State* L, int transactionIndex)
+{
+    bool isOneStep = false;
+
+    lua_getfield(L, transactionIndex, "purchaseType");
+    if (lua_isstring(L, -1) && strcmp(lua_tostring(L, -1), "ONE_STEP") == 0) {
+        isOneStep = true;
+    }
+    lua_pop(L, 1);
+
+    return isOneStep;
+}
+
 static int IAP_ProcessPendingTransactions(lua_State* L)
 {
     DM_LUA_STACK_CHECK(L, 0);
+
+    if(g_IAP.m_isRuStoreInstalled){
+        IAP_GetRuStorePurchases();
+        return 0;
+    }
 
     dmAndroid::ThreadAttacher threadAttacher;
     JNIEnv* env = threadAttacher.GetEnv();
@@ -64,6 +104,7 @@ static int IAP_List(lua_State* L)
         dmScript::LuaCallbackInfo* callback = dmScript::CreateCallback(L, 2);
 
         ConnectCallback("rustore_pay_on_get_products_success", callback);
+        ConnectCallback("rustore_pay_on_get_products_failure", callback);
         GetRuStoreProducts(L);
         return 0;
     }
@@ -100,8 +141,11 @@ static int IAP_Buy(lua_State* L)
         //     return 0;
         // }
         const char* productId = (char*)luaL_checkstring(L, 1);
-        //RuStorePurchase(productId);
-        RuStorePurchaseTwoStep(productId);
+        if(g_IAP.m_useRuStoreTwoStepPurchase){
+            RuStorePurchaseTwoStep(productId);
+        } else {
+            RuStorePurchase(productId);
+        }
         return 0;
     }
 
@@ -172,7 +216,11 @@ static int IAP_Finish(lua_State* L)
 
         if(g_IAP.m_isRuStoreInstalled){
             //bool auth = GetCoreAuthorizationStatus();
-            RuStoreConfirmTwoStepPurchase(receipt);
+            if (IAP_IsRuStoreOneStepTransaction(L, 1)) {
+                dmLogInfo("RuStore iap.finish ignored for one-step transaction.");
+            } else {
+                RuStoreConfirmTwoStepPurchase(receipt);
+            }
         } else {
             
             jstring receiptUTF = env->NewStringUTF(receipt);
@@ -214,8 +262,7 @@ static int IAP_Acknowledge(lua_State* L)
         lua_pop(L, 1);
 
         if(g_IAP.m_isRuStoreInstalled){
-            //TODO
-            GetRuStorePurchase(receipt);
+            dmLogInfo("RuStore iap.acknowledge ignored: RuStore has no Google Play acknowledge equivalent.");
         } else {
             dmAndroid::ThreadAttacher threadAttacher;
             JNIEnv* env = threadAttacher.GetEnv();
@@ -235,7 +282,7 @@ static int IAP_Restore(lua_State* L)
     DM_LUA_STACK_CHECK(L, 1);
 
     if(g_IAP.m_isRuStoreInstalled){
-        //TODO
+        IAP_GetRuStorePurchases();
         lua_pushboolean(L, 1);
         return 1;
     }
@@ -260,14 +307,19 @@ static int IAP_SetListener(lua_State* L)
 
         dmScript::LuaCallbackInfo* callback = dmScript::CreateCallback(L, 1);
 
-        ConnectCallback("rustore_pay_on_purchase_success", callback);
-        ConnectCallback("rustore_pay_on_purchase_failure", callback);
-        ConnectCallback("rustore_pay_on_purchase_two_step_success", callback);
-        ConnectCallback("rustore_pay_on_purchase_two_step_failure", callback);
-        ConnectCallback("rustore_pay_on_get_purchases_success", callback);
-        ConnectCallback("rustore_pay_on_get_purchases_failure", callback);
+        const char* channels[] = {
+            "rustore_pay_on_purchase_success",
+            "rustore_pay_on_purchase_failure",
+            "rustore_pay_on_purchase_two_step_success",
+            "rustore_pay_on_purchase_two_step_failure",
+            "rustore_pay_on_confirm_two_step_purchase_success",
+            "rustore_pay_on_confirm_two_step_purchase_failure",
+            "rustore_pay_on_get_purchases_success",
+            "rustore_pay_on_get_purchases_failure"
+        };
+        ReplaceCallbacks(channels, sizeof(channels) / sizeof(channels[0]), callback);
 
-        GetRuStorePurchases();
+        IAP_GetRuStorePurchases();
         return 0;
     }
 
@@ -314,6 +366,17 @@ static const luaL_reg IAP_methods[] =
     {"process_pending_transactions", IAP_ProcessPendingTransactions},
     {0, 0}
 };
+
+static void IAP_RegisterLua(lua_State* L)
+{
+    int top = lua_gettop(L);
+    luaL_register(L, LIB_NAME, IAP_methods);
+
+    IAP_PushConstants(L);
+
+    lua_pop(L, 1);
+    assert(top == lua_gettop(L));
+}
 
 
 #ifdef __cplusplus
@@ -364,6 +427,19 @@ JNIEXPORT void JNICALL Java_com_defold_iap_IapJNI_onPurchaseResult__ILjava_lang_
 }
 #endif
 
+static ErrorReason BillingResponseToErrorReason(BillingResponse response)
+{
+    switch (response)
+    {
+    case BILLING_RESPONSE_RESULT_ITEM_ALREADY_OWNED:
+        return REASON_ITEM_ALREADY_OWNED;
+    case BILLING_RESPONSE_RESULT_USER_CANCELED:
+        return REASON_USER_CANCELED;
+    default:
+        return REASON_UNSPECIFIED;
+    }
+}
+
 static void HandleProductResult(const IAPCommand* cmd)
 {
     if (cmd->m_Callback == 0)
@@ -388,7 +464,7 @@ static void HandleProductResult(const IAPCommand* cmd)
     } else {
         dmLogError("IAP error %d", cmd->m_ResponseCode);
         lua_pushnil(L);
-        IAP_PushError(L, "failed to fetch product", REASON_UNSPECIFIED);
+        IAP_PushError(L, "failed to fetch product", BillingResponseToErrorReason((BillingResponse)cmd->m_ResponseCode));
     }
 
     dmScript::PCall(L, 3, 0);
@@ -432,7 +508,7 @@ static void HandlePurchaseResult(const IAPCommand* cmd)
     } else {
         dmLogError("IAP error %d", cmd->m_ResponseCode);
         lua_pushnil(L);
-        IAP_PushError(L, "failed to buy product", REASON_UNSPECIFIED);
+        IAP_PushError(L, "failed to buy product", BillingResponseToErrorReason((BillingResponse)cmd->m_ResponseCode));
     }
 
     dmScript::PCall(L, 3, 0);
@@ -446,16 +522,31 @@ static dmExtension::Result InitializeIAP(dmExtension::Params* params)
 {
     IAP_Queue_Create(&g_IAP.m_CommandQueue);
 
+    g_IAP.m_autoFinishTransactions = dmConfigFile::GetInt(params->m_ConfigFile, "iap.auto_finish_transactions", 1) == 1;
+    g_IAP.m_useOnlyRuStore = dmConfigFile::GetInt(params->m_ConfigFile, "iap.use_only_rustore", 0) == 1;
+    g_IAP.m_useRuStoreTwoStepPurchase = dmConfigFile::GetInt(params->m_ConfigFile, "iap.rustore_use_two_step_purchase", 0) == 1;
+    g_IAP.m_ruStoreOneStepPurchaseFilterHours = dmConfigFile::GetInt(params->m_ConfigFile, "iap.rustore_one_step_purchase_filter_hour", 24);
+    if (g_IAP.m_ruStoreOneStepPurchaseFilterHours < 0) {
+        g_IAP.m_ruStoreOneStepPurchaseFilterHours = 0;
+    }
+    dmLogInfo("RuStore-only IAP mode: %s", g_IAP.m_useOnlyRuStore ? "enabled" : "disabled");
+    dmLogInfo("RuStore two-step purchase mode: %s", g_IAP.m_useRuStoreTwoStepPurchase ? "enabled" : "disabled");
+    dmLogInfo("RuStore one-step purchase filter: last %d hour(s)", g_IAP.m_ruStoreOneStepPurchaseFilterHours);
+
     bool isRuStoreInstalled = IsRuStoreInstalled();
-    if(isRuStoreInstalled){
+    if(g_IAP.m_useOnlyRuStore || isRuStoreInstalled){
         g_IAP.m_isRuStoreInstalled = true;
-        dmLogInfo("IsRuStoreInstalled() == true");
+        dmLogInfo("RuStore IAP pipeline enabled. IsRuStoreInstalled() == %s", isRuStoreInstalled ? "true" : "false");
         GetRuStoreUserAuthorizationStatus();
     } else {
         dmLogInfo("IsRuStoreInstalled() == false");
     }
 
-    g_IAP.m_autoFinishTransactions = dmConfigFile::GetInt(params->m_ConfigFile, "iap.auto_finish_transactions", 1) == 1;
+    if(g_IAP.m_useOnlyRuStore){
+        dmLogInfo("Skipping Defold Android IAP provider initialization because iap.use_only_rustore is enabled.");
+        IAP_RegisterLua(params->m_L);
+        return dmExtension::RESULT_OK;
+    }
 
     dmAndroid::ThreadAttacher threadAttacher;
     JNIEnv* env = threadAttacher.GetEnv();
@@ -490,14 +581,7 @@ static dmExtension::Result InitializeIAP(dmExtension::Params* params)
     jni_constructor = env->GetMethodID(iap_jni_class, "<init>", "()V");
     g_IAP.m_IAPJNI = env->NewGlobalRef(env->NewObject(iap_jni_class, jni_constructor));
 
-    lua_State*L = params->m_L;
-    int top = lua_gettop(L);
-    luaL_register(L, LIB_NAME, IAP_methods);
-
-    IAP_PushConstants(L);
-
-    lua_pop(L, 1);
-    assert(top == lua_gettop(L));
+    IAP_RegisterLua(params->m_L);
 
     return dmExtension::RESULT_OK;
 }
@@ -532,17 +616,22 @@ static dmExtension::Result FinalizeIAP(dmExtension::Params* params)
 {
     IAP_Queue_Destroy(&g_IAP.m_CommandQueue);
 
-    if (params->m_L == dmScript::GetCallbackLuaContext(g_IAP.m_Listener)) {
+    if (g_IAP.m_Listener && params->m_L == dmScript::GetCallbackLuaContext(g_IAP.m_Listener)) {
         dmScript::DestroyCallback(g_IAP.m_Listener);
         g_IAP.m_Listener = 0;
     }
 
     dmAndroid::ThreadAttacher threadAttacher;
     JNIEnv* env = threadAttacher.GetEnv();
-    env->CallVoidMethod(g_IAP.m_IAP, g_IAP.m_Stop);
-    env->DeleteGlobalRef(g_IAP.m_IAP);
-    env->DeleteGlobalRef(g_IAP.m_IAPJNI);
-    g_IAP.m_IAP = NULL;
+    if(g_IAP.m_IAP){
+        env->CallVoidMethod(g_IAP.m_IAP, g_IAP.m_Stop);
+        env->DeleteGlobalRef(g_IAP.m_IAP);
+        g_IAP.m_IAP = NULL;
+    }
+    if(g_IAP.m_IAPJNI){
+        env->DeleteGlobalRef(g_IAP.m_IAPJNI);
+        g_IAP.m_IAPJNI = NULL;
+    }
     return dmExtension::RESULT_OK;
 }
 

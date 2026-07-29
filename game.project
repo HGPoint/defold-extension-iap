@@ -12,7 +12,7 @@ height = 1136
 input_method = HiddenInputField
 package = com.defold.extension.iap
 version_code = 9
-minimum_sdk_version = 21
+minimum_sdk_version = 23
 
 [project]
 title = extension-iap
@@ -26,7 +26,8 @@ bundle_identifier = com.defold.extension.iap
 
 [iap]
 auto_finish_transactions = 0
+use_only_rustore = 0
+rustore_use_two_step_purchase = 0
 
 [osx]
 bundle_identifier = com.defold.extension.iap
-

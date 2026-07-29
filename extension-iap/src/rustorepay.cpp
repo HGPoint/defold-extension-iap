@@ -1,6 +1,4 @@
-// #define EXTENSION_NAME RuStorePay
-// #define LIB_NAME "RuStorePay"//"iap"
-// #define MODULE_NAME "rustorepay"//"iap"
+
 #define DEBUG false
 
 #include <dmsdk/sdk.h>
@@ -115,13 +113,13 @@ int GetRuStoreProducts(lua_State* L)
     return 0;
 }
 
-int GetRuStorePurchases()
+int GetRuStorePurchases(const char* purchaseStatus)
 {
     dmAndroid::ThreadAttacher thread;
     JNIEnv* env = thread.GetEnv();
 
     const char* productType = "";
-    const char* purchaseStatus = "PAID";
+    dmLogInfo("RuStore getPurchases productType='%s' purchaseStatus='%s'", productType, purchaseStatus);
 
     jstring jproductType = env->NewStringUTF(productType);
     jstring jpurchaseStatus = env->NewStringUTF(purchaseStatus);
@@ -170,20 +168,27 @@ int RuStorePurchase(const char* productId)
     jstring juuid = (jstring) env->CallStaticObjectMethod(cls2, getUUIDMethod);
     const char *uuid = env->GetStringUTFChars(juuid, nullptr);
 
-    std::string jsonString = "{ \"productId\":\"" + std::string(productId) + "\", \"appUserId\":\"" + std::string(uuid) + "\", \"orderId\":\"" + std::string(uuid) + "\", \"quantity\":1, \"payload\":\"\" }";
+    std::string jsonString = "{ \"productId\":\"" + std::string(productId) + "\", \"appUserId\":\"" + std::string(uuid) + "\", \"orderId\":\"" + std::string(uuid) + "\", \"quantity\":1, \"developerPayload\":\"\" }";
     jstring jparams = env->NewStringUTF(jsonString.c_str());
 
-    const char* preferredPurchaseType = "ONE_STEP";//(char*)luaL_checkstring(L, 2);
+    const char* preferredPurchaseType = "ONE_STEP";
     jstring jpreferredPurchaseType = env->NewStringUTF(preferredPurchaseType);
+
+    const char* sdkTheme = "LIGHT";
+    bool enablePurchaseEventListener = false;
+    
+    jstring jsdkTheme = env->NewStringUTF(sdkTheme);
+    jboolean jenablePurchaseEventListener = (jboolean)enablePurchaseEventListener;
     
     AndroidJavaObject instance;
     GetJavaPayInstance(env, &instance);
-    jmethodID method = env->GetMethodID(instance.cls, "purchase", "(Ljava/lang/String;Ljava/lang/String;)V");
-    env->CallVoidMethod(instance.obj, method, jparams, jpreferredPurchaseType);
+    jmethodID method = env->GetMethodID(instance.cls, "purchase", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Z)V");
+    env->CallVoidMethod(instance.obj, method, jparams, jpreferredPurchaseType, jsdkTheme, jenablePurchaseEventListener);
     instance.Free(env);
 
     env->DeleteLocalRef(jparams);
     env->DeleteLocalRef(jpreferredPurchaseType);
+    env->DeleteLocalRef(jsdkTheme);
 
     return 0;
 }
@@ -202,18 +207,25 @@ int RuStorePurchaseTwoStep(const char* productId)
     jstring juuid = (jstring) env->CallStaticObjectMethod(cls2, getUUIDMethod);
     const char *uuid = env->GetStringUTFChars(juuid, nullptr);
 
-    std::string jsonString = "{ \"productId\":\"" + std::string(productId) + "\", \"orderId\":\"" + std::string(uuid) + "\", \"quantity\":1, \"payload\":\"\" }";
+    std::string jsonString = "{ \"productId\":\"" + std::string(productId) + "\", \"orderId\":\"" + std::string(uuid) + "\", \"quantity\":1, \"developerPayload\":\"\" }";
     jstring jparams = env->NewStringUTF(jsonString.c_str());
 
     dmLogInfo("IAP_Buy RuStorePurchaseTwoStep = %s", jsonString.c_str());
 
+    const char* sdkTheme = "LIGHT";
+    bool enablePurchaseEventListener = false;
+
+    jstring jsdkTheme = env->NewStringUTF(sdkTheme);
+    jboolean jenablePurchaseEventListener = (jboolean)enablePurchaseEventListener;
+
     AndroidJavaObject instance;
     GetJavaPayInstance(env, &instance);
-    jmethodID method = env->GetMethodID(instance.cls, "purchaseTwoStep", "(Ljava/lang/String;)V");
-    env->CallVoidMethod(instance.obj, method, jparams);
+    jmethodID method = env->GetMethodID(instance.cls, "purchaseTwoStep", "(Ljava/lang/String;Ljava/lang/String;Z)V");
+    env->CallVoidMethod(instance.obj, method, jparams, jsdkTheme, jenablePurchaseEventListener);
     instance.Free(env);
 
     env->DeleteLocalRef(jparams);
+    env->DeleteLocalRef(jsdkTheme);
 
     return 0;
 }
@@ -235,7 +247,7 @@ int RuStoreConfirmTwoStepPurchase(const char* purchaseId)
     instance.Free(env);
 
     env->DeleteLocalRef(jpurchaseId);
-    env->DeleteLocalRef(jdeveloperPayload);
+    if (jdeveloperPayload) env->DeleteLocalRef(jdeveloperPayload);
 
     return 0;
 }

@@ -9,7 +9,7 @@
 
     <uses-feature android:required="true" android:glEsVersion="0x00020000" />
     <uses-sdk android:minSdkVersion="{{android.minimum_sdk_version}}" android:targetSdkVersion="{{android.target_sdk_version}}" />
-    <!-- tools:replace="android:label" для того чтобы небыло конфликтов со сторонними SDK -->
+    <!-- tools:replace="android:label" Чтобы избежать конфликтов с сторонними SDK -->
     <application
         tools:replace="android:label"
         {{#has-icons?}}
@@ -38,9 +38,10 @@
             </intent-filter>
         </activity>
 
+        <!-- RuStore Deeplink activity -->
         <activity android:name="ru.rustore.defold.pay.RuStoreIntentFilterActivity"
-                android:exported="true"
-                android:launchMode="singleTop">
+                  android:theme="@android:style/Theme.NoDisplay"
+                  android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -49,10 +50,19 @@
             </intent-filter>
         </activity>
 
+        <!-- Pay activity -->
+        <activity
+                android:name="ru.rustore.sdk.pay.internal.presentation.ui.PayActivity"
+                android:exported="false"
+                android:launchMode="singleTask"
+                tools:replace="android:launchMode" />
+
+        <!-- RuStore Deeplink scheme -->
         <meta-data
             android:name="sdk_pay_scheme_value"
             android:value="@string/rustore_PayClientSettings_deeplinkScheme" />
 
+        <!-- RuStore Initializing sdk -->
         <meta-data
             android:name="console_app_id_value"
             android:value="@string/rustore_PayClientSettings_consoleApplicationId" />
