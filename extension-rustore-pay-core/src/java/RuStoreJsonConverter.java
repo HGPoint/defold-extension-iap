@@ -120,6 +120,10 @@ public class RuStoreJsonConverter {
         return status.equals("INVOICE_CREATED") || status.equals("ProductPurchaseStatus.INVOICE_CREATED");
     }
 
+    private static boolean isConfirmedStatus(String status) {
+        return status.equals("CONFIRMED") || status.equals("ProductPurchaseStatus.CONFIRMED");
+    }
+
     private static Date parsePurchaseTime(String purchaseTime) {
         String[] patterns = {
             "MMM d, yyyy h:mm:ss a",
@@ -191,12 +195,12 @@ public class RuStoreJsonConverter {
 			JSONArray transformedArray = new JSONArray();
 			for (int i = 0; i < jsonArray.length(); i++) {
 				JSONObject original = jsonArray.getJSONObject(i);
+				String status = original.getString("status");
 
-				if (!isPurchaseWithinLastHours(original, filterHours)) {
+				if (isConfirmedStatus(status) && !isPurchaseWithinLastHours(original, filterHours)) {
 					continue;
 				}
 
-				String status = original.getString("status");
 				if(isInvoiceCreatedStatus(status)){
 					continue;
 				}

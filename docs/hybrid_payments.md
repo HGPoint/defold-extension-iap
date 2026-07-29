@@ -194,7 +194,7 @@ Current behavior:
 - Generates a new UUID for `appUserId` and `orderId` for each purchase call.
 - Does not expose custom `developerPayload`, `appUserEmail`, custom quantity, custom order ID, or SDK theme through the public `iap.buy()` call.
 - Can switch to guaranteed two-step mode through `iap.rustore_use_two_step_purchase = 1` in `game.project`.
-- In one-step mode, restored purchase callbacks are limited to purchases from the last `iap.rustore_one_step_purchase_filter_hour` hours. The default is `24`.
+- In one-step mode, restored `CONFIRMED` purchase callbacks are limited to purchases from the last `iap.rustore_one_step_purchase_filter_hour` hours. `PAID` purchases are not limited by this local time filter. The default is `24`.
 
 RuStore two-step support exists in C++ through `RuStorePurchaseTwoStep(productId)`, but `iap.buy()` calls `RuStorePurchase(productId)` by default.
 
@@ -222,7 +222,7 @@ Current `GetRuStorePurchases()` behavior depends on `iap.rustore_use_two_step_pu
 | Config | RuStore SDK request | Additional local filter |
 |---|---|---|
 | `iap.rustore_use_two_step_purchase = 1` | One request with `productType = ""`, `purchaseStatus = "ProductPurchaseStatus.PAID"` | none |
-| `iap.rustore_use_two_step_purchase = 0` or missing | Two requests with `productType = ""`, `purchaseStatus = "ProductPurchaseStatus.PAID"` and `purchaseStatus = "ProductPurchaseStatus.CONFIRMED"` | purchase `purchaseTime` must be within the last `iap.rustore_one_step_purchase_filter_hour` hours |
+| `iap.rustore_use_two_step_purchase = 0` or missing | Two requests with `productType = ""`, `purchaseStatus = "ProductPurchaseStatus.PAID"` and `purchaseStatus = "ProductPurchaseStatus.CONFIRMED"` | `CONFIRMED` purchase `purchaseTime` must be within the last `iap.rustore_one_step_purchase_filter_hour` hours; `PAID` purchases are not time-filtered |
 
 The default one-step local time filter is:
 
@@ -231,11 +231,11 @@ The default one-step local time filter is:
 rustore_one_step_purchase_filter_hour = 24
 ```
 
-Setting `iap.rustore_one_step_purchase_filter_hour = 0` disables the local time filter.
+Setting `iap.rustore_one_step_purchase_filter_hour = 0` disables the local time filter for `CONFIRMED` purchases.
 
 In two-step mode, the implementation explicitly requests `ProductPurchaseStatus.PAID` purchases to stay close to the original Defold Google Play behavior, where `iap.set_listener()` and `iap.restore()` return non-finished active purchases rather than already consumed or completed purchases.
 
-In one-step mode, RuStore SDK is queried separately for `ProductPurchaseStatus.PAID` and `ProductPurchaseStatus.CONFIRMED`. The callback converter only returns purchases from the configured recent time window. Purchases without a parseable `purchaseTime` are excluded when the time filter is enabled. Because the SDK requests are separate, the Lua listener can receive matching purchases in two callback batches.
+In one-step mode, RuStore SDK is queried separately for `ProductPurchaseStatus.PAID` and `ProductPurchaseStatus.CONFIRMED`. The callback converter only applies the configured recent time window to `ProductPurchaseStatus.CONFIRMED` / `CONFIRMED` purchases. `CONFIRMED` purchases without a parseable `purchaseTime` are excluded when the time filter is enabled, while `PAID` purchases are returned without this local time restriction. Because the SDK requests are separate, the Lua listener can receive matching purchases in two callback batches.
 
 RuStore `CONFIRMED` two-step purchases are not restored by default. Returning `CONFIRMED` consumables can make game code treat already completed payments as new `TRANS_STATE_PURCHASED` transactions and grant or consume them again unless the game has strict idempotency by `purchaseId` or `invoiceId`.
 
