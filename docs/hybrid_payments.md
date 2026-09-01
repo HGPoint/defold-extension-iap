@@ -2,13 +2,46 @@
 
 This document describes the current hybrid payment implementation in this repository.
 
-The solution is based on the official Defold In-app purchase extension and adds RuStore Pay SDK 10.3.1 support for Android builds distributed in the RU segment. The public game-facing API remains the Defold `iap` module where possible. RuStore is selected internally when the RuStore application is available on the device.
+## Architecture And Migration Rule
+
+The hybrid implementation is repository-owned and must not be replaced by the upstream RuStore Defold extension. SDK upgrades are performed by applying verified upstream SDK changes on top of the current hybrid implementation.
+
+In particular, do not copy upstream `rustorepay.cpp`, `rustorecore.cpp`, `iap_android.cpp`, Android manifests, or Gradle files wholesale. The current provider routing, callback queue, Defold transaction conversion, fallback behavior, and UUID helper are part of the integration contract.
+
+The detailed migration plan from RuStore Pay 10.3.1 to 11.1.0 is documented in `docs/hybrid_payments_migration_10_3_1_to_11_1.md`.
+
+The solution is based on the official Defold In-app purchase extension and adds RuStore Pay SDK support for Android builds distributed in the RU segment. The public game-facing API remains the Defold `iap` module where possible. RuStore is selected internally when the RuStore application is available on the device.
 
 Primary source documents:
 
 - `docs/index.md` - original Defold In-app purchase extension documentation.
 - `docs/rustore_pay_defold_10.3.1.en.md` - practical RuStore Pay SDK 10.3.1 documentation for Defold.
 - `rustore_pay_defold_10.3.1.md` - Russian version of the RuStore Pay SDK 10.3.1 documentation.
+- `https://www.rustore.ru/help/sdk/pay/defold/11-1-0` - official RuStore Pay SDK 11.1.0 documentation.
+- `https://www.rustore.ru/help/sdk/pay/defold/history` - official Defold SDK change history.
+
+## Migration History
+
+### RuStore Pay 10.3.1 baseline
+
+- Added the repository-owned hybrid provider routing and callback conversion.
+- Preserved Google Play/Amazon fallback behavior.
+- Added the Defold-facing RuStore provider through the existing `iap.*` API.
+
+### RuStore Pay 11.1.0 migration
+
+The migration was implemented according to `docs/hybrid_payments_migration_10_3_1_to_11_1.md`.
+
+The migration is an additive compatibility change on top of the 10.3.1 hybrid implementation. It is not an upstream extension replacement. The current callback queue, transaction converter, provider routing, fallback behavior, and UUID helper must remain intact.
+
+SDK changes covered by the migration:
+
+- Pay SDK runtime artifact is upgraded to 11.1.0.
+- `getPurchases` receives the new acknowledgement-state argument.
+- Purchase data may contain `acknowledgementState` (`PENDING`, `ACKNOWLEDGED`, or `UNKNOWN`).
+- SDK 11.0 APIs `updateAcknowledgementState` and `getBillingSubscriptions` are available for explicit future integration decisions.
+- SDK 11.1 adds first-purchase coupon support inside the RuStore payment sheet; no new game-facing API is required.
+- The RuStore Maven repository changes to `https://nexus-external.vkteam.ru/repository/maven-rustore-exposed`.
 
 ## Objective
 
@@ -37,7 +70,7 @@ The intent is to keep existing game-side `iap.*` calls working while routing pay
 
 Implemented in the current solution:
 
-- RuStore Pay SDK 10.3.1 is added to the Android build.
+- RuStore Pay SDK 11.1.0 is added to the Android build.
 - `extension-rustore-pay-core` is included as a native extension module.
 - RuStore callback events are bridged through `extension-rustore-pay-core/src/rustorecore.cpp` into Defold Lua callbacks.
 - Android `iap.*` calls in `extension-iap/src/iap_android.cpp` are conditionally redirected to RuStore.
@@ -67,7 +100,7 @@ Out of scope for the current implementation:
 | `extension-rustore-pay-core/src/java/RuStoreJsonConverter.java` | Converts RuStore JSON payloads to Defold IAP-like JSON payloads. |
 | `extension-iap/src/java/RuStoreIntentFilterActivity.java` | Handles RuStore deeplink return and forwards intents to `RuStorePay.INSTANCE.proceedIntent(...)`. |
 | `extension-iap/manifests/android/ExtendedAndroidManifest.xml` | Required Android manifest configuration for RuStore. |
-| `extension-iap/manifests/android/build.gradle` | Adds `ru.rustore.sdk:pay:10.3.1` and support dependencies. |
+| `extension-iap/manifests/android/build.gradle` | Adds `ru.rustore.sdk:pay:11.1.0`, fallback Billing, and the RuStore Maven repository. |
 | `extension-rustore-pay-core/manifests/android/build.gradle` | Adds RuStore Maven repository. |
 
 ## Runtime Provider Selection
@@ -305,12 +338,14 @@ RuStore purchase statuses are converted to Defold transaction states in `RuStore
 | `PAID` | `iap.TRANS_STATE_PURCHASED` (`1`) |
 | `CONFIRMED` | `iap.TRANS_STATE_PURCHASED` (`1`) |
 | `Success` | `iap.TRANS_STATE_PURCHASED` (`1`) |
+| `EXECUTING` | `iap.TRANS_STATE_PURCHASING` (`0`) |
 | `Failure` | `iap.TRANS_STATE_FAILED` (`2`) |
 | `Cancelled` | `iap.TRANS_STATE_FAILED` (`2`) |
 | `CANCELLED` | `iap.TRANS_STATE_FAILED` (`2`) |
 | `REJECTED` | `iap.TRANS_STATE_FAILED` (`2`) |
 | `EXPIRED` | `iap.TRANS_STATE_FAILED` (`2`) |
 | `REFUNDED` | `iap.TRANS_STATE_FAILED` (`2`) |
+| `REFUNDING` | `iap.TRANS_STATE_FAILED` (`2`) |
 | `REVERSED` | `iap.TRANS_STATE_FAILED` (`2`) |
 | Any other value | `iap.TRANS_STATE_UNVERIFIED` (`4`) |
 
@@ -331,6 +366,7 @@ For purchase results and restored purchases, RuStore JSON is converted into a De
 | `currency` | `currency_code` |
 | `amountLabel` | `price_string` |
 | `price` in minor units | `amount` converted by multiplying by `0.01` |
+| `acknowledgementState` | Preserved unchanged when supplied by SDK 11.x |
 | Full purchase JSON | `original_json` for purchase callback success |
 
 The original RuStore fields, including `purchaseType`, remain in the transaction table when conversion succeeds. The converter also adds `date` using the current device time, not necessarily the RuStore `purchaseTime`.
@@ -353,7 +389,7 @@ For unconverted generic RuStore events, callbacks receive the original RuStore c
 
 ## Android Manifest Requirements
 
-The current `extension-iap/manifests/android/ExtendedAndroidManifest.xml` includes the main RuStore requirements from the 10.3.1 documentation.
+The current `extension-iap/manifests/android/ExtendedAndroidManifest.xml` includes the main RuStore requirements from the 11.1.0 documentation. The existing project-specific manifest attributes and notification permission are retained.
 
 Main Defold activity:
 
@@ -435,8 +471,8 @@ Current dependencies in `extension-iap/manifests/android/build.gradle`:
 
 ```gradle
 dependencies {
-    implementation 'com.android.billingclient:billing:7.0.0'
-    implementation "ru.rustore.sdk:pay:10.3.1"
+    implementation 'com.android.billingclient:billing:8.3.0'
+    implementation "ru.rustore.sdk:pay:11.1.0"
     implementation "com.google.code.gson:gson:2.10.1"
 }
 ```
@@ -455,7 +491,21 @@ repositories {
 
 Build verification should confirm that Defold merges repositories from both native extensions. If repository declarations are not merged as expected, the RuStore SDK dependency may fail to resolve even though the dependency is declared correctly.
 
-## SDK 10.3.1 Signature Check
+The Pay module declares:
+
+```gradle
+repositories {
+    google()
+    mavenCentral()
+    maven {
+        url = uri("https://nexus-external.vkteam.ru/repository/maven-rustore-exposed")
+    }
+}
+```
+
+The fallback Billing dependency must remain present in the hybrid module. The upstream 11.1 source archive currently declares `pay:11.0.0`; this repository must use the explicitly verified `pay:11.1.0` artifact.
+
+## SDK Signature Checks
 
 The connected `RuStoreDefoldPay.jar` exports methods matching the JNI calls used by `rustorepay.cpp`:
 
@@ -472,7 +522,47 @@ The connected `RuStoreDefoldPay.jar` exports methods matching the JNI calls used
 | `cancelTwoStepPurchase(String)` | `void cancelTwoStepPurchase(java.lang.String)` |
 | `proceedIntent(Intent)` | `void proceedIntent(android.content.Intent)` |
 
-This reduces the risk of a direct JNI signature mismatch after migration from RuStore SDK 9 to 10.3.1. The native callback converter for `rustore_pay_on_purchase_product_failure` also calls `RuStoreJsonConverter.convertPurchaseProductFailure(String, String)` with the Java method's two-argument signature. The remaining risks are mainly semantic: event payload shape, purchase status meaning, and entitlement workflow.
+This reduces the risk of a direct JNI signature mismatch after migration from RuStore SDK 10.3.1 to 11.1.0. The native callback converter for `rustore_pay_on_purchase_product_failure` also calls `RuStoreJsonConverter.convertPurchaseProductFailure(String, String)` with the Java method's two-argument signature. The remaining risks are mainly semantic: event payload shape, purchase status meaning, and entitlement workflow.
+
+The current 10.3.1 `RuStoreDefoldPay.jar` exports:
+
+| C++ call | Java/Kotlin method exported by 10.3.1 jar |
+|---|---|
+| `getPurchases(String, String)` | `void getPurchases(java.lang.String, java.lang.String)` |
+| `proceedIntent(Intent)` | `void proceedIntent(android.content.Intent)` |
+
+The verified 11.1.0 Pay JAR exports:
+
+| C++ call | Java/Kotlin method exported by 11.1.0 jar |
+|---|---|
+| `getUserAuthorizationStatus()` | `void getUserAuthorizationStatus()` |
+| `getPurchaseAvailability()` | `void getPurchaseAvailability()` |
+| `getProducts(String[])` | `void getProducts(java.lang.String[])` |
+| `getPurchases(String, String, String)` | `void getPurchases(java.lang.String, java.lang.String, java.lang.String)` |
+| `getPurchase(String)` | `void getPurchase(java.lang.String)` |
+| `purchase(String, String, String, boolean)` | `void purchase(java.lang.String, java.lang.String, java.lang.String, boolean)` |
+| `purchaseTwoStep(String, String, boolean)` | `void purchaseTwoStep(java.lang.String, java.lang.String, boolean)` |
+| `confirmTwoStepPurchase(String, String)` | `void confirmTwoStepPurchase(java.lang.String, java.lang.String)` |
+| `cancelTwoStepPurchase(String)` | `void cancelTwoStepPurchase(java.lang.String)` |
+| `updateAcknowledgementState(String, String, String)` | `void updateAcknowledgementState(java.lang.String, java.lang.String, java.lang.String)` |
+| `getBillingSubscriptions()` | `void getBillingSubscriptions()` |
+| `proceedIntent(Intent)` | `void proceedIntent(android.content.Intent)` |
+
+The critical JNI change is the additional acknowledgement-state parameter in `getPurchases`. The current bridge must pass an empty value for its existing PAID/CONFIRMED requests unless an acknowledgement filter is explicitly introduced.
+
+The current Activity also exposes a repository-owned `getUUID()` helper used by the hybrid C++ purchase bridge. The upstream Activity does not expose this helper, so it must not be removed without first migrating UUID generation.
+
+## Acknowledgement State
+
+SDK 11.x may include `acknowledgementState` in purchase JSON:
+
+| Value | Meaning |
+|---|---|
+| `PENDING` | The product has not been acknowledged as delivered. |
+| `ACKNOWLEDGED` | The product has been acknowledged as delivered. |
+| `UNKNOWN` | Acknowledgement state is not applicable or unavailable. |
+
+The migration must preserve this field in the converted transaction alongside the existing Defold fields. It must not be confused with `iap.acknowledge()`: the current RuStore implementation intentionally keeps that Defold call as a no-op, while SDK 11.x provides a separate `updateAcknowledgementState` operation for a future explicit integration decision.
 
 ## Known Issues And Risks
 
@@ -490,6 +580,7 @@ This reduces the risk of a direct JNI signature mismatch after migration from Ru
 |---|---|---|
 | `rustorecore.is_rustore_installed()` is not exposed to Lua. | The official RuStore utility documented for game code is unavailable through Lua. | `rustorecore.cpp` |
 | Purchase process events are disabled. | Intermediate payment launch/start/cancel events are not available. | `rustorepay.cpp` |
+| Upstream source files differ from the hybrid implementation. | Wholesale replacement loses provider routing, callback conversion, fallback behavior, or the UUID helper. | Migration process |
 
 ### Optional Improvements
 
@@ -518,7 +609,7 @@ Recommended flow:
 
 Build and environment:
 
-- Android build resolves `ru.rustore.sdk:pay:10.3.1` from the RuStore Maven repository.
+- Android build resolves `ru.rustore.sdk:pay:11.1.0` from the RuStore Maven repository.
 - APK/AAB package name matches the RuStore Console package name.
 - Required `rustore_PayClientSettings_*` string resources are present in the application.
 - `DefoldActivity` uses `singleTask`.
@@ -565,7 +656,7 @@ The current hybrid implementation can be considered documented when:
 - RuStore SDK integration points are listed.
 - Android manifest and Gradle requirements are documented.
 - Status and field mappings are explicit.
-- Known risks from RuStore SDK 10.3.1 migration are recorded.
+- Known risks from the RuStore SDK 10.3.1 to 11.1.0 migration are recorded.
 - Manual QA scenarios are defined.
 
 ## Recommended Next Implementation Stage

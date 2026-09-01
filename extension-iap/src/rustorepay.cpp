@@ -123,15 +123,17 @@ int GetRuStorePurchases(const char* purchaseStatus)
 
     jstring jproductType = env->NewStringUTF(productType);
     jstring jpurchaseStatus = env->NewStringUTF(purchaseStatus);
+    jstring jacknowledgementState = env->NewStringUTF("");
 
     AndroidJavaObject instance;
     GetJavaPayInstance(env, &instance);
-    jmethodID method = env->GetMethodID(instance.cls, "getPurchases", "(Ljava/lang/String;Ljava/lang/String;)V");
-    env->CallVoidMethod(instance.obj, method, jproductType, jpurchaseStatus);
+    jmethodID method = env->GetMethodID(instance.cls, "getPurchases", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+    env->CallVoidMethod(instance.obj, method, jproductType, jpurchaseStatus, jacknowledgementState);
     instance.Free(env);
 
     env->DeleteLocalRef(jproductType);
     env->DeleteLocalRef(jpurchaseStatus);
+    env->DeleteLocalRef(jacknowledgementState);
 
     return 0;
 }
