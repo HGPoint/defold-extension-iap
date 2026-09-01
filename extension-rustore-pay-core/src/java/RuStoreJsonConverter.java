@@ -86,6 +86,8 @@ public class RuStoreJsonConverter {
             case "PROCESSING":
             case "ProductPurchaseStatus.PROCESSING":
             case "ProductPurchaseStatus.INVOICE_CREATED":
+            case "EXECUTING":
+            case "ProductPurchaseStatus.EXECUTING":
                 defoldState = 0;
                 break;
 			case "Failure":
@@ -93,11 +95,13 @@ public class RuStoreJsonConverter {
 			case "CANCELLED":
 			case "REJECTED":
 			case "EXPIRED":
-			case "REFUNDED":
-			case "REVERSED":
+            case "REFUNDED":
+            case "REFUNDING":
+            case "REVERSED":
             case "ProductPurchaseStatus.CANCELLED":
             case "ProductPurchaseStatus.REJECTED":
             case "ProductPurchaseStatus.REFUNDED":
+            case "ProductPurchaseStatus.REFUNDING":
             case "ProductPurchaseStatus.REVERSED":
             case "ProductPurchaseStatus.EXPIRED":
                 defoldState = 2;

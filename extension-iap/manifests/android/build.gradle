@@ -1,9 +1,13 @@
 repositories {
+    google()
     mavenCentral()
+    maven {
+        url = uri("https://nexus-external.vkteam.ru/repository/maven-rustore-exposed")
+    }
 }
 
 dependencies {
     implementation 'com.android.billingclient:billing:8.3.0'
-    implementation "ru.rustore.sdk:pay:10.3.1"
+    implementation "ru.rustore.sdk:pay:11.1.0"
     implementation "com.google.code.gson:gson:2.10.1"
 }
